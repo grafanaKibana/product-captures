@@ -220,8 +220,10 @@ The validation workflow accepts only `config`. The Action passes the caller's Gi
 
 ## Development and releases
 
-Build with `dotnet build ProductCaptures.csproj`. CI runs C# core, composition, and host checks, a fresh generic capture, and same-revision reusable-workflow checks. The tiny Node adapter pins `obsidian-launcher` 3.4.0; the C# project pins Microsoft.Playwright 1.62.0.
+Follow the reusable [C#/.NET standard](docs/standards/csharp-dotnet.md), also linked by the scoped Codex, Cursor and Copilot instructions. Build with `dotnet build ProductCaptures.csproj`. CI runs C# core, composition, and host checks, a fresh generic capture, and same-revision reusable-workflow checks. The tiny Node adapter pins `obsidian-launcher` 3.4.0; the C# project pins Microsoft.Playwright 1.62.0.
 
-Version 2 is a breaking configuration and Action-interface change. Publish `v2.0.0` and compatible `v2` only after the candidate's hosted capture checks pass. Existing v1 tags remain unchanged for rollback.
+Before publication, run `dotnet format <project> --verify-no-changes --no-restore` and `dotnet build <project>` for `ProductCaptures.csproj`, `test/CompositionTests.csproj` and `test/Hosts/Hosts.csproj`, then the core/adapter, composition, host and generic browser checks in CI. The SDK analyzers and `.editorconfig` enforce the configured style without extra analyzer packages.
+
+Version 2 is a breaking configuration and Action-interface change; 2.0.1 is a compatible readability patch. After the candidate's current-SHA hosted checks pass, create its immutable version tag and publish with an explicit matching title, for example `gh release create v2.0.1 --title v2.0.1 --notes-file release-notes.md`. Release titles contain only the version tag. Advance the compatible floating `v2` ref only after those checks pass. Preserve existing immutable version tags for rollback.
 
 Authored toolkit code uses MIT. Fonts, official branding, dependencies, and image provenance retain their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

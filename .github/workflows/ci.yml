@@ -20,6 +20,13 @@ jobs:
           node-version: '22'
       - name: Build toolkit
         run: dotnet build ProductCaptures.csproj --nologo
+      - name: Verify C# formatting
+        run: |
+          dotnet format ProductCaptures.csproj --verify-no-changes --no-restore
+          dotnet restore test/CompositionTests.csproj
+          dotnet restore test/Hosts/Hosts.csproj
+          dotnet format test/CompositionTests.csproj --verify-no-changes --no-restore
+          dotnet format test/Hosts/Hosts.csproj --verify-no-changes --no-restore
       - name: Install capture browser
         run: dotnet bin/Debug/net10.0/ProductCaptures.dll install --with-deps
       - name: Verify core contracts
