@@ -4,3 +4,5 @@ playwright-report/
 test-results/
 .product-captures-cache/
 test/fixtures/generic/output/
+bin/
+obj/

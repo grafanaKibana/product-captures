@@ -12,22 +12,38 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Verify Node-only contracts before installing SDKs
-        run: npm run check
-      - name: Verify planning without installed SDKs
-        run: node cli.mjs --config test/fixtures/generic/product-captures.json --dry-run
-      - run: npm ci --no-audit --no-fund
-      - run: node node_modules/playwright/cli.js install --with-deps chromium
-      - run: npm run test:browser
+      - name: Build toolkit
+        run: dotnet build ProductCaptures.csproj --nologo
+      - name: Install capture browser
+        run: dotnet bin/Debug/net10.0/ProductCaptures.dll install --with-deps
+      - name: Verify core contracts
+        run: node --test test/core.test.mjs
+      - name: Verify Obsidian launcher adapter
+        run: node --test test/kiss-obsidian-launcher.test.mjs
+      - name: Verify composition
+        run: dotnet run --project test/CompositionTests.csproj
+      - name: Verify host contracts
+        run: dotnet run --project test/Hosts/Hosts.csproj
       - name: Capture generic fresh browser fixture
         env:
           SMOKE_ROOT: ${{ runner.temp }}/product-captures-smoke
         run: |
-          node --input-type=module -e 'import fs from "node:fs"; fs.cpSync("test/fixtures/generic", process.env.SMOKE_ROOT, {recursive:true});'
-          node cli.mjs --config "$SMOKE_ROOT/product-captures.json"
+          mkdir -p "$SMOKE_ROOT"
+          cp test/fixtures/generic/index.html test/fixtures/generic/product-captures.json "$SMOKE_ROOT/"
+          dotnet bin/Debug/net10.0/ProductCaptures.dll --config "$SMOKE_ROOT/product-captures.json" --dry-run
+          test ! -e "$SMOKE_ROOT/output"
+          dotnet bin/Debug/net10.0/ProductCaptures.dll --config "$SMOKE_ROOT/product-captures.json"
+          test "$(find "$SMOKE_ROOT/output" -type f -name '*.png' | wc -l)" -eq 4
+          test -f "$SMOKE_ROOT/output/captures/overview-light.png"
+          test -f "$SMOKE_ROOT/output/captures/overview-dark.png"
+          test -f "$SMOKE_ROOT/output/hero.png"
+          test -f "$SMOKE_ROOT/output/hero-dark.png"
       - uses: actions/upload-artifact@v4
         with:
           name: generic-smoke

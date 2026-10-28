@@ -4,40 +4,16 @@ on:
     inputs:
       config:
         type: string
-        default: product-captures.json
+        default: 'product-captures.json'
       dry-run:
         type: boolean
         default: true
-      capture-mode:
-        type: string
-        default: fresh
-      only:
-        type: string
-        default: ''
-      template:
-        type: string
-        default: ''
-      theme:
-        type: string
-        default: ''
-      width:
-        type: string
-        default: ''
-      height:
-        type: string
-        default: ''
-      scale:
-        type: string
-        default: ''
-      base-url:
-        type: string
-        default: ''
-      output-dir:
-        type: string
-        default: ''
-      skip-prepare:
+      reuse-screenshots:
         type: boolean
         default: false
+      url:
+        type: string
+        default: ''
       release-tag:
         type: string
         default: ''
@@ -58,11 +34,6 @@ jobs:
           repository: ${{ github.repository }}
           ref: ${{ inputs.release-tag && format('refs/tags/{0}', inputs.release-tag) || github.sha }}
           persist-credentials: false
-      - name: Set up capture runtime
-        if: ${{ !inputs.dry-run }}
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - name: Capture caller product
         uses: $/actions/capture
         env:
@@ -71,16 +42,7 @@ jobs:
         with:
           config: ${{ inputs.config }}
           dry-run: ${{ inputs.dry-run }}
-          capture-mode: ${{ inputs.capture-mode }}
-          only: ${{ inputs.only }}
-          template: ${{ inputs.template }}
-          theme: ${{ inputs.theme }}
-          width: ${{ inputs.width }}
-          height: ${{ inputs.height }}
-          scale: ${{ inputs.scale }}
-          base-url: ${{ inputs.base-url }}
-          output-dir: ${{ inputs.output-dir }}
-          skip-prepare: ${{ inputs.skip-prepare }}
+          reuse-screenshots: ${{ inputs.reuse-screenshots }}
+          url: ${{ inputs.url }}
           release-tag: ${{ inputs.release-tag }}
           update-pr: ${{ inputs.update-pr }}
-          token: ${{ github.token }}

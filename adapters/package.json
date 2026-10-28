@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "type": "module",
+  "dependencies": { "obsidian-launcher": "3.4.0" }
+}

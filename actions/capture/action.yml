@@ -1,51 +1,24 @@
 name: Product captures
-description: Capture real products with Playwright and render reusable README artwork.
+description: Capture a light/dark screenshot pair and compose matching README images.
 inputs:
   config:
-    description: Path to the repository-owned scene configuration.
-    default: product-captures.json
+    description: Path to the repository-owned configuration.
+    default: 'product-captures.json'
   dry-run:
-    description: Validate and print the plan without installing, building, capturing, or publishing.
+    description: Validate the plan without product commands, browser capture, or publication.
     default: 'true'
-  capture-mode:
-    description: fresh captures the current product; existing explicitly reuses configured image inputs.
-    default: fresh
-  only:
-    description: Comma-separated output IDs; empty renders every output.
-    default: ''
-  template:
-    description: Optional editorial, feature, or showcase template override.
-    default: ''
-  theme:
-    description: Optional light or dark override.
-    default: ''
-  width:
-    description: Optional output width override.
-    default: ''
-  height:
-    description: Optional output height override.
-    default: ''
-  scale:
-    description: Optional device scale factor from 1 to 3.
-    default: ''
-  base-url:
-    description: Optional web origin override for preview/manual captures.
-    default: ''
-  output-dir:
-    description: Optional output directory relative to the config, inside the checkout.
-    default: ''
-  skip-prepare:
-    description: Reuse a product already built by an earlier release step.
+  reuse-screenshots:
+    description: Explicitly reuse the saved light and dark raw screenshots.
     default: 'false'
+  url:
+    description: Optional HTTP preview origin override.
+    default: ''
   release-tag:
-    description: Explicit existing release to receive generated PNG assets; empty disables release uploads.
+    description: Existing release tag that receives the finished image pair.
     default: ''
   update-pr:
-    description: Open a review-only PR updating finished PNGs; requires contents and pull-requests write.
+    description: Open a review-only image update pull request.
     default: 'false'
-  token:
-    description: GitHub token used only for release uploads and optional image PR publication.
-    default: ${{ github.token }}
 outputs:
   artifact-path:
     description: Repository-relative generated output directory.
@@ -53,6 +26,15 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+    - name: Build capture tool
+      shell: bash
+      run: |
+        cd "$GITHUB_ACTION_PATH/../.."
+        dotnet build ProductCaptures.csproj --configuration Release --nologo
     - name: Validate and plan captures
       id: plan
       shell: bash
@@ -61,38 +43,27 @@ runs:
         PRODUCT_CAPTURE_ACTION_REF: ${{ github.action_ref }}
         CAPTURE_CONFIG: ${{ inputs.config }}
         CAPTURE_DRY_RUN: ${{ inputs.dry-run }}
-        CAPTURE_MODE: ${{ inputs.capture-mode }}
-        CAPTURE_ONLY: ${{ inputs.only }}
-        CAPTURE_TEMPLATE: ${{ inputs.template }}
-        CAPTURE_THEME: ${{ inputs.theme }}
-        CAPTURE_WIDTH: ${{ inputs.width }}
-        CAPTURE_HEIGHT: ${{ inputs.height }}
-        CAPTURE_SCALE: ${{ inputs.scale }}
-        CAPTURE_BASE_URL: ${{ inputs.base-url }}
-        CAPTURE_OUTPUT_DIR: ${{ inputs.output-dir }}
-        CAPTURE_SKIP_PREPARE: ${{ inputs.skip-prepare }}
+        CAPTURE_REUSE_SCREENSHOTS: ${{ inputs.reuse-screenshots }}
+        CAPTURE_URL: ${{ inputs.url }}
         CAPTURE_RELEASE_TAG: ${{ inputs.release-tag }}
         CAPTURE_UPDATE_PR: ${{ inputs.update-pr }}
-      run: node "$GITHUB_ACTION_PATH/../../workflow.mjs" plan
-
-    - name: Install isolated capture dependencies
-      if: steps.plan.outputs.dry-run == 'false'
-      shell: bash
-      run: npm ci --prefix "$GITHUB_ACTION_PATH/../.." --no-audit --no-fund
-
+      run: dotnet "$GITHUB_ACTION_PATH/../../bin/Release/net10.0/ProductCaptures.dll" action plan
+    - name: Set up host runtime
+      if: steps.plan.outputs.dry-run == 'false' && steps.plan.outputs.needs-node == 'true'
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
     - name: Install the capture browser
       if: steps.plan.outputs.dry-run == 'false'
       shell: bash
-      run: node "$GITHUB_ACTION_PATH/../../node_modules/playwright/cli.js" install --with-deps chromium
-
-    - name: Install the virtual Obsidian display
+      run: dotnet "$GITHUB_ACTION_PATH/../../bin/Release/net10.0/ProductCaptures.dll" install --with-deps
+    - name: Install the Obsidian display
       if: steps.plan.outputs.dry-run == 'false' && steps.plan.outputs.needs-obsidian == 'true' && runner.os == 'Linux'
       shell: bash
       run: |
         sudo apt-get update
         sudo apt-get install --yes xvfb openbox
-
-    - name: Capture and compose PNG artwork
+    - name: Capture and compose images
       if: steps.plan.outputs.dry-run == 'false'
       shell: bash
       env:
@@ -100,29 +71,31 @@ runs:
         PRODUCT_CAPTURE_ACTION_REF: ${{ github.action_ref }}
         CAPTURE_CONFIG: ${{ inputs.config }}
         CAPTURE_DRY_RUN: ${{ inputs.dry-run }}
-        CAPTURE_MODE: ${{ inputs.capture-mode }}
-        CAPTURE_ONLY: ${{ inputs.only }}
-        CAPTURE_TEMPLATE: ${{ inputs.template }}
-        CAPTURE_THEME: ${{ inputs.theme }}
-        CAPTURE_WIDTH: ${{ inputs.width }}
-        CAPTURE_HEIGHT: ${{ inputs.height }}
-        CAPTURE_SCALE: ${{ inputs.scale }}
-        CAPTURE_BASE_URL: ${{ inputs.base-url }}
-        CAPTURE_OUTPUT_DIR: ${{ inputs.output-dir }}
-        CAPTURE_SKIP_PREPARE: ${{ inputs.skip-prepare }}
+        CAPTURE_REUSE_SCREENSHOTS: ${{ inputs.reuse-screenshots }}
+        CAPTURE_URL: ${{ inputs.url }}
         CAPTURE_RELEASE_TAG: ${{ inputs.release-tag }}
         CAPTURE_UPDATE_PR: ${{ inputs.update-pr }}
-      run: node "$GITHUB_ACTION_PATH/../../workflow.mjs" run
-
-    - name: Upload capture previews
+        NEEDS_OBSIDIAN: ${{ steps.plan.outputs.needs-obsidian }}
+      run: |
+        tool="$GITHUB_ACTION_PATH/../../bin/Release/net10.0/ProductCaptures.dll"
+        if [[ "$RUNNER_OS" == Linux && "$NEEDS_OBSIDIAN" == true ]]; then
+          xvfb-run --auto-servernum bash -s -- "$tool" <<'DISPLAY'
+        openbox >/dev/null 2>&1 &
+        window_manager=$!
+        trap 'kill "$window_manager" 2>/dev/null || true' EXIT
+        dotnet "$1" action run
+        DISPLAY
+        else
+          dotnet "$tool" action run
+        fi
+    - name: Upload image previews
       if: steps.plan.outputs.dry-run == 'false'
       uses: actions/upload-artifact@v4
       with:
         name: product-captures-${{ github.run_id }}-${{ github.run_attempt }}
         path: ${{ steps.plan.outputs.artifact-path }}
         if-no-files-found: error
-
-    - name: Attach artwork to the selected release
+    - name: Attach images to the selected release
       if: steps.plan.outputs.dry-run == 'false' && inputs.release-tag != ''
       shell: bash
       env:
@@ -130,21 +103,12 @@ runs:
         PRODUCT_CAPTURE_ACTION_REF: ${{ github.action_ref }}
         CAPTURE_CONFIG: ${{ inputs.config }}
         CAPTURE_DRY_RUN: ${{ inputs.dry-run }}
-        CAPTURE_MODE: ${{ inputs.capture-mode }}
-        CAPTURE_ONLY: ${{ inputs.only }}
-        CAPTURE_TEMPLATE: ${{ inputs.template }}
-        CAPTURE_THEME: ${{ inputs.theme }}
-        CAPTURE_WIDTH: ${{ inputs.width }}
-        CAPTURE_HEIGHT: ${{ inputs.height }}
-        CAPTURE_SCALE: ${{ inputs.scale }}
-        CAPTURE_BASE_URL: ${{ inputs.base-url }}
-        CAPTURE_OUTPUT_DIR: ${{ inputs.output-dir }}
-        CAPTURE_SKIP_PREPARE: ${{ inputs.skip-prepare }}
+        CAPTURE_REUSE_SCREENSHOTS: ${{ inputs.reuse-screenshots }}
+        CAPTURE_URL: ${{ inputs.url }}
         CAPTURE_RELEASE_TAG: ${{ inputs.release-tag }}
         CAPTURE_UPDATE_PR: ${{ inputs.update-pr }}
-        GH_TOKEN: ${{ inputs.token }}
-      run: node "$GITHUB_ACTION_PATH/../../workflow.mjs" release
-
+        GH_TOKEN: ${{ github.token }}
+      run: dotnet "$GITHUB_ACTION_PATH/../../bin/Release/net10.0/ProductCaptures.dll" action release
     - name: Open an image update pull request
       if: steps.plan.outputs.dry-run == 'false' && inputs.update-pr == 'true'
       shell: bash
@@ -153,17 +117,9 @@ runs:
         PRODUCT_CAPTURE_ACTION_REF: ${{ github.action_ref }}
         CAPTURE_CONFIG: ${{ inputs.config }}
         CAPTURE_DRY_RUN: ${{ inputs.dry-run }}
-        CAPTURE_MODE: ${{ inputs.capture-mode }}
-        CAPTURE_ONLY: ${{ inputs.only }}
-        CAPTURE_TEMPLATE: ${{ inputs.template }}
-        CAPTURE_THEME: ${{ inputs.theme }}
-        CAPTURE_WIDTH: ${{ inputs.width }}
-        CAPTURE_HEIGHT: ${{ inputs.height }}
-        CAPTURE_SCALE: ${{ inputs.scale }}
-        CAPTURE_BASE_URL: ${{ inputs.base-url }}
-        CAPTURE_OUTPUT_DIR: ${{ inputs.output-dir }}
-        CAPTURE_SKIP_PREPARE: ${{ inputs.skip-prepare }}
+        CAPTURE_REUSE_SCREENSHOTS: ${{ inputs.reuse-screenshots }}
+        CAPTURE_URL: ${{ inputs.url }}
         CAPTURE_RELEASE_TAG: ${{ inputs.release-tag }}
         CAPTURE_UPDATE_PR: ${{ inputs.update-pr }}
-        GH_TOKEN: ${{ inputs.token }}
-      run: node "$GITHUB_ACTION_PATH/../../workflow.mjs" pr
+        GH_TOKEN: ${{ github.token }}
+      run: dotnet "$GITHUB_ACTION_PATH/../../bin/Release/net10.0/ProductCaptures.dll" action pr
