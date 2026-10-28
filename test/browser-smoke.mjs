@@ -13,6 +13,17 @@ const exec=promisify(execFile);
 const cli=fileURLToPath(new URL('../cli.mjs',import.meta.url));
 const serverScript=fileURLToPath(new URL('./fixture-server.mjs',import.meta.url));
 
+// Allow platform-dependent Canvas ink rounding while still detecting a 2px shift.
+const opticalInkAligned=(label,wordmark)=>Math.abs(label-wordmark)<1.25;
+
+async function plainPlatformInk(page){
+  return page.evaluate(()=>{
+    const context=document.createElement('canvas').getContext('2d');
+    const inkCenter=selector=>{const element=document.querySelector(selector),style=getComputedStyle(element),probe=document.createElement('i');probe.style.cssText='display:inline-block;width:0;height:0;vertical-align:baseline';element.append(probe);context.font=style.font;const metrics=context.measureText(element.textContent),baseline=probe.getBoundingClientRect().top;probe.remove();return baseline-(metrics.actualBoundingBoxAscent-metrics.actualBoundingBoxDescent)/2;};
+    return {label:inkCenter('.for-label'),wordmark:inkCenter('.platform strong')};
+  });
+}
+
 /** Claim a free loopback port for a test-owned server invocation. */
 async function freePort(){const server=net.createServer();await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const port=server.address().port;await new Promise(resolve=>server.close(resolve));return port;}
 
@@ -180,7 +191,7 @@ test('purple plugin columns align name and official platform lockup with the scr
       });
       assert.ok(result.photo);assert.ok(result.brandFilters.every(filter=>filter==='none'));
       assert.ok(Math.abs(result.brand.width/result.brand.height-143/25)<.001);
-      assert.ok(Math.abs(result.labelInkCenter-result.wordmarkInkCenter)<.75,'FOR ink should align optically with the unchanged wordmark ink');
+      assert.ok(opticalInkAligned(result.labelInkCenter,result.wordmarkInkCenter),'FOR ink should align optically with the unchanged wordmark ink');
       assert.ok(result.geometry.every(style=>style.transform==='none'&&style.perspective==='none'));
       assert.ok(Math.abs(result.image.width/result.image.height-1.44)<.001);
       assert.ok(Math.abs(result.frame.left-result.image.left)<.05&&Math.abs(result.frame.right-result.image.right)<.05,'default plugin framing must preserve the source width');
@@ -209,12 +220,17 @@ test('purple plugin columns align name and official platform lockup with the scr
       await page.setViewportSize({width,height});
       await page.setContent(await renderTemplate({project:{title:'Quartz Tabsdown',subtitle:'for Quartz',artDirection:'studio',layout:'column'},output:{template:'showcase',width,height},captures:[capture]}));
       await page.evaluate(()=>document.fonts.ready);
-      const alignment=await page.evaluate(()=>{
-        const context=document.createElement('canvas').getContext('2d');
-        const inkCenter=selector=>{const element=document.querySelector(selector),style=getComputedStyle(element),probe=document.createElement('i');probe.style.cssText='display:inline-block;width:0;height:0;vertical-align:baseline';element.append(probe);context.font=style.font;const metrics=context.measureText(element.textContent),baseline=probe.getBoundingClientRect().top;probe.remove();return baseline-(metrics.actualBoundingBoxAscent-metrics.actualBoundingBoxDescent)/2;};
-        return {label:inkCenter('.for-label'),wordmark:inkCenter('.platform strong')};
-      });
-      assert.ok(Math.abs(alignment.label-alignment.wordmark)<.75,`plain FOR Quartz ink alignment: ${JSON.stringify({width,...alignment})}`);
+      const alignment=await plainPlatformInk(page);
+      assert.ok(opticalInkAligned(alignment.label,alignment.wordmark),`plain FOR Quartz ink alignment: ${JSON.stringify({width,...alignment})}`);
+      const displacement=alignment.label>=alignment.wordmark?2:-2;
+      const previousTransform=await page.locator('.for-label').evaluate((element,offset)=>{const previous=element.style.transform;element.style.transform=`translateY(${offset}px)`;return previous;},displacement);
+      try{
+        const shifted=await plainPlatformInk(page);
+        assert.ok(Math.abs(shifted.label-alignment.label-displacement)<.01,'the negative control must move the measured ink by 2px');
+        assert.equal(opticalInkAligned(shifted.label,shifted.wordmark),false,`a 2px label displacement must fail at ${width}px`);
+      }finally{await page.locator('.for-label').evaluate((element,value)=>{element.style.transform=value;},previousTransform);}
+      const restored=await plainPlatformInk(page);
+      assert.ok(opticalInkAligned(restored.label,restored.wordmark),'restoring label geometry must restore ink alignment');
     }
   }finally{await browser.close();}
 });

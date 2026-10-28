@@ -6,10 +6,10 @@ Two art-direction families ship: `porcelain` uses a magnified upright product cr
 
 ## Run
 
-Clone the shared repository once; no npm registry publication or new credentials are required. Use absolute paths so the toolkit and product can live anywhere, including paths with spaces:
+After the initial `v1` release is published, clone that tested major version once; no npm registry publication or new credentials are required. Use absolute paths so the toolkit and product can live anywhere, including paths with spaces:
 
 ```sh
-git clone https://github.com/grafanaKibana/product-captures.git /absolute/path/to/product-captures
+git clone --branch v1 --single-branch https://github.com/grafanaKibana/product-captures.git /absolute/path/to/product-captures
 node /absolute/path/to/product-captures/cli.mjs --config /absolute/path/to/product/product-captures.json --dry-run
 node /absolute/path/to/product-captures/cli.mjs --config /absolute/path/to/product/product-captures.json --list
 npm ci --prefix /absolute/path/to/product-captures
@@ -18,6 +18,16 @@ node /absolute/path/to/product-captures/cli.mjs --config /absolute/path/to/produ
 ```
 
 Quote paths containing spaces. Dependencies and browser installation belong to the shared checkout; product preparation can run the product's own build commands in fresh mode.
+
+To adopt a newer tested `v1`, use a clean dedicated toolkit checkout:
+
+```sh
+git -C /absolute/path/to/product-captures fetch origin tag v1 --force
+git -C /absolute/path/to/product-captures switch --detach v1
+```
+
+For a fixed implementation, clone with `--branch v1.0.0` (or another published immutable version) instead. Maintainers testing an unreleased candidate should check out its full commit SHA explicitly. Reinstall shared dependencies/browser when the selected version changes them.
+
 
 The planning commands do not install packages, start processes, use the network, check for built input files, or create directories. `--dry-run` is available before installing dependencies.
 
