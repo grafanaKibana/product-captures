@@ -1,0 +1,31 @@
+{
+  "name": "@grafanakibana/product-captures",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "product-captures": "./cli.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:browser": "node --test test/browser-smoke.mjs",
+    "check": "node --check cli.mjs && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.62.1",
+    "obsidian-launcher": "3.4.0"
+  },
+  "description": "Reusable product captures and README artwork for GitHub Actions and local use",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/grafanaKibana/product-captures.git"
+  },
+  "homepage": "https://github.com/grafanaKibana/product-captures",
+  "bugs": {
+    "url": "https://github.com/grafanaKibana/product-captures/issues"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,6 @@
+node_modules/
+.DS_Store
+playwright-report/
+test-results/
+.product-captures-cache/
+test/fixtures/generic/output/

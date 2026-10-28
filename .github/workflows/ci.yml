@@ -1,0 +1,44 @@
+name: Verify toolkit
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify Node-only contracts before installing SDKs
+        run: npm run check
+      - name: Verify planning without installed SDKs
+        run: node cli.mjs --config test/fixtures/generic/product-captures.json --dry-run
+      - run: npm ci --no-audit --no-fund
+      - run: node node_modules/playwright/cli.js install --with-deps chromium
+      - run: npm run test:browser
+      - name: Capture generic fresh browser fixture
+        env:
+          SMOKE_ROOT: ${{ runner.temp }}/product-captures-smoke
+        run: |
+          node --input-type=module -e 'import fs from "node:fs"; fs.cpSync("test/fixtures/generic", process.env.SMOKE_ROOT, {recursive:true});'
+          node cli.mjs --config "$SMOKE_ROOT/product-captures.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: generic-smoke
+          path: ${{ runner.temp }}/product-captures-smoke/output
+          if-no-files-found: error
+  same-revision-validation:
+    uses: ./.github/workflows/validate.yml
+    with:
+      config: test/fixtures/generic/product-captures.json
+  same-revision-capture:
+    uses: ./.github/workflows/capture.yml
+    with:
+      config: test/fixtures/generic/product-captures.json
+      dry-run: false

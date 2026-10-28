@@ -1,0 +1,28 @@
+name: Validate product captures
+on:
+  workflow_call:
+    inputs:
+      config:
+        type: string
+        default: product-captures.json
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out caller source
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate caller plan
+        uses: $/actions/capture
+        env:
+          PRODUCT_CAPTURE_WORKFLOW_REVISION: ${{ job.workflow_sha }}
+          PRODUCT_CAPTURE_WORKFLOW_REPOSITORY: ${{ job.workflow_repository }}
+        with:
+          config: ${{ inputs.config }}
+          dry-run: true
