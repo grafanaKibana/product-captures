@@ -220,9 +220,25 @@ The validation workflow accepts only `config`. The Action passes the caller's Gi
 
 ## Development and releases
 
-Build with `dotnet build ProductCaptures.csproj`. CI runs C# core, composition, and host checks, a fresh generic capture, and same-revision reusable-workflow checks. The tiny Node adapter pins `obsidian-launcher` 3.4.0; the C# project pins Microsoft.Playwright 1.62.0.
+The solution contains two .NET projects:
 
-Before publication, run `dotnet format <project> --verify-no-changes --no-restore` and `dotnet build <project>` for `ProductCaptures.csproj`, `test/CompositionTests.csproj` and `test/Hosts/Hosts.csproj`, then the core/adapter, composition, host and generic browser checks in CI. The SDK analyzers and `.editorconfig` enforce the configured style without extra analyzer packages.
+| Project | Purpose |
+| --- | --- |
+| `ProductCaptures` | The CLI, capture providers, rendering and publication. |
+| `ProductCaptures.Tests` | MSTest tests for configuration, composition and host behavior, organized in separate folders. |
+
+Host providers remain part of the CLI; they do not need a separate production assembly. Node integration and adapter tests live in `tests/node`, use Node's built-in runner and strict assertions, and require no JavaScript test framework.
+
+```sh
+dotnet build ProductCaptures.slnx
+dotnet bin/Debug/net10.0/ProductCaptures.dll install
+dotnet test --solution ProductCaptures.slnx --no-build
+node --test tests/node/*.test.mjs
+```
+
+Use Node 22 and the .NET 10 SDK. The test project uses MSTest.Sdk 4.5.2 and Microsoft.Testing.Platform with optional extensions disabled. Browser tests use isolated contexts; filesystem and process tests own their temporary resources and clean them up on failure. The production project still pins Microsoft.Playwright 1.62.0, and the small host adapter pins `obsidian-launcher` 3.4.0.
+
+Before publication, verify formatting with `dotnet format <project> --verify-no-changes --no-restore` for `ProductCaptures.csproj` and `tests/ProductCaptures.Tests/ProductCaptures.Tests.csproj`, then run both test suites and the generic browser capture in CI. The SDK analyzers and `.editorconfig` enforce the configured style. CI also checks the same-revision reusable workflows.
 
 Version 2 is a breaking configuration and Action-interface change; 2.0.1 is a compatible readability patch. After the candidate's current-SHA hosted checks pass, create its immutable version tag and publish with an explicit matching title, for example `gh release create v2.0.1 --title v2.0.1 --notes-file release-notes.md`. Release titles contain only the version tag. Advance the compatible floating `v2` ref only after those checks pass. Preserve existing immutable version tags for rollback.
 

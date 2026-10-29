@@ -18,31 +18,24 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Build toolkit
-        run: dotnet build ProductCaptures.csproj --nologo
+      - name: Build toolkit and tests
+        run: dotnet build ProductCaptures.slnx --nologo
       - name: Verify C# formatting
         run: |
           dotnet format ProductCaptures.csproj --verify-no-changes --no-restore
-          dotnet restore test/CompositionTests.csproj
-          dotnet restore test/Hosts/Hosts.csproj
-          dotnet format test/CompositionTests.csproj --verify-no-changes --no-restore
-          dotnet format test/Hosts/Hosts.csproj --verify-no-changes --no-restore
+          dotnet format tests/ProductCaptures.Tests/ProductCaptures.Tests.csproj --verify-no-changes --no-restore
       - name: Install capture browser
         run: dotnet bin/Debug/net10.0/ProductCaptures.dll install --with-deps
-      - name: Verify core contracts
-        run: node --test test/core.test.mjs
-      - name: Verify Obsidian launcher adapter
-        run: node --test test/kiss-obsidian-launcher.test.mjs
-      - name: Verify composition
-        run: dotnet run --project test/CompositionTests.csproj
-      - name: Verify host contracts
-        run: dotnet run --project test/Hosts/Hosts.csproj
+      - name: Run .NET tests
+        run: dotnet test --solution ProductCaptures.slnx --no-build
+      - name: Run Node integration and adapter tests
+        run: node --test tests/node/*.test.mjs
       - name: Capture generic fresh browser fixture
         env:
           SMOKE_ROOT: ${{ runner.temp }}/product-captures-smoke
         run: |
           mkdir -p "$SMOKE_ROOT"
-          cp test/fixtures/generic/index.html test/fixtures/generic/product-captures.json "$SMOKE_ROOT/"
+          cp tests/fixtures/generic/index.html tests/fixtures/generic/product-captures.json "$SMOKE_ROOT/"
           dotnet bin/Debug/net10.0/ProductCaptures.dll --config "$SMOKE_ROOT/product-captures.json" --dry-run
           test ! -e "$SMOKE_ROOT/output"
           dotnet bin/Debug/net10.0/ProductCaptures.dll --config "$SMOKE_ROOT/product-captures.json"
@@ -59,9 +52,9 @@ jobs:
   same-revision-validation:
     uses: ./.github/workflows/validate.yml
     with:
-      config: test/fixtures/generic/product-captures.json
+      config: tests/fixtures/generic/product-captures.json
   same-revision-capture:
     uses: ./.github/workflows/capture.yml
     with:
-      config: test/fixtures/generic/product-captures.json
+      config: tests/fixtures/generic/product-captures.json
       dry-run: false
