@@ -43,6 +43,9 @@ test('process cleanup kills its known descendant before draining inherited pipes
 
   t.after(async () => {
     await within(parent.completed, 1_000, 'Known descendant kept fixture pipes open');
-    assert.throws(() => process.kill(descendantPid, 0), { code: 'ESRCH' });
+    await waitFor(() => {
+      try { process.kill(descendantPid, 0); return false; }
+      catch (error) { if (error.code === 'ESRCH') return true; throw error; }
+    }, 'Owned descendant survived test cleanup');
   });
 });
