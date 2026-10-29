@@ -1,12 +1,12 @@
 using System.Text.Json;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using FluentAssertions;
+using Xunit;
 
 namespace ProductCaptures.Tests.Hosts;
 
-[TestClass]
 public sealed class QuartzHostTests
 {
-    [TestMethod]
+    [Fact]
     public void Validate_MinimalPlugin_AcceptsDefaults()
     {
         using var fixture = new QuartzFixture();
@@ -14,28 +14,29 @@ public sealed class QuartzHostTests
         QuartzHost.Validate(fixture.CreateConfiguration());
     }
 
-    [TestMethod]
-    [DataRow("revision", "quartz.revision must be a pinned commit")]
-    [DataRow("upstream", "quartz.upstream must be an HTTPS Git repository")]
-    [DataRow("content", "Path must stay inside project")]
-    [DataRow("lock", "Quartz inputs require package.json and package-lock.json")]
-    [DataRow("input", "Path must stay inside project")]
-    [DataRow("configuration", "Quartz options and configuration must be objects")]
-    [DataRow("metadata", "Plugin package.json requires quartz.name metadata")]
+    [Theory]
+    [InlineData("revision", "quartz.revision must be a pinned commit")]
+    [InlineData("upstream", "quartz.upstream must be an HTTPS Git repository")]
+    [InlineData("content", "Path must stay inside project")]
+    [InlineData("lock", "Quartz inputs require package.json and package-lock.json")]
+    [InlineData("input", "Path must stay inside project")]
+    [InlineData("configuration", "Quartz options and configuration must be objects")]
+    [InlineData("metadata", "Plugin package.json requires quartz.name metadata")]
     public void Validate_InvalidPlugin_RejectsExpectedBoundary(string scenario, string expectedMessage)
     {
         using var fixture = new QuartzFixture();
         Config configuration = fixture.CreateConfiguration();
         ConfigureInvalidInput(configuration, fixture, scenario);
 
-        ArgumentException error = Assert.ThrowsExactly<ArgumentException>(
-            () => QuartzHost.Validate(configuration));
+        Action validate = () => QuartzHost.Validate(configuration);
 
-        Assert.Contains(expectedMessage, error.Message, StringComparison.Ordinal);
-        Assert.IsFalse(Directory.Exists(fixture.OutputPath));
+        ArgumentException error = validate.Should().ThrowExactly<ArgumentException>().Which;
+
+        error.Message.Should().Contain(expectedMessage);
+        Directory.Exists(fixture.OutputPath).Should().BeFalse();
     }
 
-    [TestMethod]
+    [Fact]
     public void Validate_SymlinkInFixture_RejectsLinkedInput()
     {
         using var fixture = new QuartzFixture();
@@ -43,44 +44,47 @@ public sealed class QuartzHostTests
         File.WriteAllText(outside, "outside");
         File.CreateSymbolicLink(Path.Combine(fixture.Root, "fixtures", "link.md"), outside);
 
-        ArgumentException error = Assert.ThrowsExactly<ArgumentException>(
-            () => QuartzHost.Validate(fixture.CreateConfiguration()));
+        Action validate = () => QuartzHost.Validate(fixture.CreateConfiguration());
 
-        Assert.Contains("Symlink is not allowed in host input", error.Message, StringComparison.Ordinal);
+        ArgumentException error = validate.Should().ThrowExactly<ArgumentException>().Which;
+
+        error.Message.Should().Contain("Symlink is not allowed in host input");
     }
 
-    [TestMethod]
+    [Fact]
     public async Task PrepareAsync_NonemptyUnownedCache_PreservesExistingFilesAndSourceLock()
     {
         using var fixture = new QuartzFixture();
         Directory.CreateDirectory(fixture.HostPath);
         string unownedFile = Path.Combine(fixture.HostPath, "unowned");
-        await File.WriteAllTextAsync(unownedFile, "keep");
+        await File.WriteAllTextAsync(unownedFile, "keep", TestContext.Current.CancellationToken);
 
-        InvalidOperationException error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
-            () => QuartzHost.PrepareAsync(fixture.CreateConfiguration()));
+        Func<Task> prepare = () => QuartzHost.PrepareAsync(fixture.CreateConfiguration());
 
-        Assert.Contains("non-empty", error.Message, StringComparison.Ordinal);
-        Assert.AreEqual("keep", await File.ReadAllTextAsync(unownedFile));
-        Assert.AreEqual("{}", await File.ReadAllTextAsync(fixture.LockPath));
-        Assert.IsFalse(Directory.Exists(fixture.OutputPath));
+        InvalidOperationException error = (await prepare.Should().ThrowExactlyAsync<InvalidOperationException>()).Which;
+
+        error.Message.Should().Contain("non-empty");
+        (await File.ReadAllTextAsync(unownedFile, TestContext.Current.CancellationToken)).Should().Be("keep");
+        (await File.ReadAllTextAsync(fixture.LockPath, TestContext.Current.CancellationToken)).Should().Be("{}");
+        Directory.Exists(fixture.OutputPath).Should().BeFalse();
     }
 
-    [TestMethod]
+    [Fact]
     public async Task PrepareAsync_CachedRevisionMismatch_RejectsBeforeWritingOutput()
     {
         using var fixture = new QuartzFixture();
         await fixture.InitializeCachedRepositoryAsync();
 
-        InvalidOperationException error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
-            () => QuartzHost.PrepareAsync(fixture.CreateConfiguration()));
+        Func<Task> prepare = () => QuartzHost.PrepareAsync(fixture.CreateConfiguration());
 
-        Assert.Contains("different revision", error.Message, StringComparison.Ordinal);
-        Assert.AreEqual("{}", await File.ReadAllTextAsync(fixture.LockPath));
-        Assert.IsFalse(Directory.Exists(fixture.OutputPath));
+        InvalidOperationException error = (await prepare.Should().ThrowExactlyAsync<InvalidOperationException>()).Which;
+
+        error.Message.Should().Contain("different revision");
+        (await File.ReadAllTextAsync(fixture.LockPath, TestContext.Current.CancellationToken)).Should().Be("{}");
+        Directory.Exists(fixture.OutputPath).Should().BeFalse();
     }
 
-    [TestMethod]
+    [Fact]
     public async Task PrepareAsync_CachedOriginMismatch_RejectsBeforeWritingOutput()
     {
         using var fixture = new QuartzFixture();
@@ -88,12 +92,13 @@ public sealed class QuartzHostTests
         Config configuration = fixture.CreateConfiguration();
         configuration.Quartz!.Revision = (await fixture.ReadRevisionAsync()).Trim();
 
-        InvalidOperationException error = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
-            () => QuartzHost.PrepareAsync(configuration));
+        Func<Task> prepare = () => QuartzHost.PrepareAsync(configuration);
 
-        Assert.Contains("unexpected origin", error.Message, StringComparison.Ordinal);
-        Assert.AreEqual("{}", await File.ReadAllTextAsync(fixture.LockPath));
-        Assert.IsFalse(Directory.Exists(fixture.OutputPath));
+        InvalidOperationException error = (await prepare.Should().ThrowExactlyAsync<InvalidOperationException>()).Which;
+
+        error.Message.Should().Contain("unexpected origin");
+        (await File.ReadAllTextAsync(fixture.LockPath, TestContext.Current.CancellationToken)).Should().Be("{}");
+        Directory.Exists(fixture.OutputPath).Should().BeFalse();
     }
 
     private static void ConfigureInvalidInput(Config configuration, QuartzFixture fixture, string scenario)

@@ -1,67 +1,26 @@
 using System.Globalization;
 using System.Text;
+using FluentAssertions;
 using Microsoft.Playwright;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Xunit;
 using CaptureComposition = ProductCaptures.Composition;
 
 namespace ProductCaptures.Tests.Composition;
 
-[TestClass]
-public sealed class CompositionTests
+[Collection("Composition")]
+public sealed class CompositionTests(BrowserFixture browser) : IClassFixture<BrowserFixture>
 {
-    private static IPlaywright? playwright;
-    private static IBrowser? browser;
-
-    [ClassInitialize]
-    public static async Task InitializeBrowserAsync(TestContext context)
-    {
-        playwright = await Playwright.CreateAsync();
-        try
-        {
-            browser = await playwright.Chromium.LaunchAsync(new BrowserTypeLaunchOptions
-            {
-                Headless = true,
-                Timeout = 30_000
-            });
-        }
-        catch
-        {
-            playwright.Dispose();
-            playwright = null;
-            throw;
-        }
-
-        context.WriteLine($"Chromium {browser.Version}");
-    }
-
-    [ClassCleanup]
-    public static async Task DisposeBrowserAsync()
-    {
-        try
-        {
-            if (browser is not null)
-            {
-                await browser.DisposeAsync();
-            }
-        }
-        finally
-        {
-            playwright?.Dispose();
-        }
-    }
-
-    [TestMethod]
+    [Fact]
     public async Task RenderAsync_AuthoredText_EscapesHtml()
     {
         Config configuration = CreateConfiguration();
 
         string html = await CaptureComposition.RenderAsync(configuration, "light", CreateSource());
 
-        Assert.Contains("&lt;Product &amp; name&gt;", html, StringComparison.Ordinal);
+        html.Should().Contain("&lt;Product &amp; name&gt;");
     }
 
-    [TestMethod]
-    [DoNotParallelize]
+    [Fact]
     public async Task RenderAsync_FrenchCulture_UsesInvariantGeometry()
     {
         Config configuration = CreateConfiguration();
@@ -78,28 +37,28 @@ public sealed class CompositionTests
             CultureInfo.CurrentCulture = originalCulture;
         }
 
-        Assert.Contains("width:976px", html, StringComparison.Ordinal);
-        Assert.DoesNotContain("677,777", html, StringComparison.Ordinal);
+        html.Should().Contain("width:976px");
+        html.Should().NotContain("677,777");
     }
 
-    [TestMethod]
+    [Fact]
     public async Task RenderAsync_AssetReferences_AreEmbedded()
     {
         string html = await CaptureComposition.RenderAsync(CreateConfiguration(), "light", CreateSource());
 
-        Assert.DoesNotContain("http:", html, StringComparison.Ordinal);
-        Assert.DoesNotContain("https:", html, StringComparison.Ordinal);
+        html.Should().NotContain("http:");
+        html.Should().NotContain("https:");
     }
 
-    [TestMethod]
-    [DataRow("column", "light")]
-    [DataRow("column", "dark")]
-    [DataRow("horizontal", "light")]
-    [DataRow("horizontal", "dark")]
-    [DataRow("centered", "light")]
-    [DataRow("centered", "dark")]
-    [DataRow("top", "light")]
-    [DataRow("top", "dark")]
+    [Theory]
+    [InlineData("column", "light")]
+    [InlineData("column", "dark")]
+    [InlineData("horizontal", "light")]
+    [InlineData("horizontal", "dark")]
+    [InlineData("centered", "light")]
+    [InlineData("centered", "dark")]
+    [InlineData("top", "light")]
+    [InlineData("top", "dark")]
     public async Task RenderAsync_LayoutWithSource_PreservesPanelAndBranding(string layout, string theme)
     {
         Config configuration = CreateConfiguration(layout);
@@ -107,26 +66,26 @@ public sealed class CompositionTests
 
         IPage page = await RenderPageAsync(context, configuration, theme, CreateSource());
 
-        Assert.AreEqual(1, await page.Locator(".window").CountAsync());
+        (await page.Locator(".window").CountAsync()).Should().Be(1);
         double aspectRatio = await page.Locator(".product-capture").EvaluateAsync<double>("""
             image => {
                 const bounds = image.getBoundingClientRect();
                 return bounds.width / bounds.height;
             }
             """);
-        Assert.AreEqual(1.44, aspectRatio, 0.002);
-        Assert.AreEqual("true", await page.Locator(".platform").GetAttributeAsync("data-obsidian"));
+        aspectRatio.Should().BeApproximately(1.44, 0.002);
+        (await page.Locator(".platform").GetAttributeAsync("data-obsidian")).Should().Be("true");
     }
 
-    [TestMethod]
-    [DataRow("column", "light")]
-    [DataRow("column", "dark")]
-    [DataRow("horizontal", "light")]
-    [DataRow("horizontal", "dark")]
-    [DataRow("centered", "light")]
-    [DataRow("centered", "dark")]
-    [DataRow("top", "light")]
-    [DataRow("top", "dark")]
+    [Theory]
+    [InlineData("column", "light")]
+    [InlineData("column", "dark")]
+    [InlineData("horizontal", "light")]
+    [InlineData("horizontal", "dark")]
+    [InlineData("centered", "light")]
+    [InlineData("centered", "dark")]
+    [InlineData("top", "light")]
+    [InlineData("top", "dark")]
     public async Task RenderAsync_SourceFreeLayout_CentersIdentityWithoutPanel(string layout, string theme)
     {
         Config configuration = CreateConfiguration(layout);
@@ -135,17 +94,17 @@ public sealed class CompositionTests
 
         IPage page = await RenderPageAsync(context, configuration, theme, source: null);
 
-        Assert.AreEqual(0, await page.Locator(".window").CountAsync());
+        (await page.Locator(".window").CountAsync()).Should().Be(0);
         double headingCenter = await page.Locator("h1").EvaluateAsync<double>("""
             heading => {
                 const bounds = heading.getBoundingClientRect();
                 return bounds.x + bounds.width / 2;
             }
             """);
-        Assert.AreEqual(800, headingCenter, 0.01);
+        headingCenter.Should().BeApproximately(800, 0.01);
     }
 
-    [TestMethod]
+    [Fact]
     public async Task RenderAsync_EmptySubtitle_KeepsPluginPhotographyWithoutLockup()
     {
         var configuration = new Config
@@ -157,8 +116,8 @@ public sealed class CompositionTests
 
         string html = await CaptureComposition.RenderAsync(configuration, "light", CreateSource());
 
-        Assert.Contains("canvas studio", html, StringComparison.Ordinal);
-        Assert.DoesNotContain("class=\"platform\"", html, StringComparison.Ordinal);
+        html.Should().Contain("canvas studio");
+        html.Should().NotContain("class=\"platform\"");
     }
 
     private static Config CreateConfiguration(string layout = "column") => new()
@@ -182,10 +141,9 @@ public sealed class CompositionTests
         return new SourceImage(1440, 1000, image);
     }
 
-    private static Task<IBrowserContext> CreateContextAsync(string theme)
+    private Task<IBrowserContext> CreateContextAsync(string theme)
     {
-        IBrowser currentBrowser = browser ?? throw new InvalidOperationException("Browser fixture is not initialized.");
-        return currentBrowser.NewContextAsync(new BrowserNewContextOptions
+        return browser.Browser.NewContextAsync(new BrowserNewContextOptions
         {
             ViewportSize = new ViewportSize { Width = 1600, Height = 900 },
             DeviceScaleFactor = 1,

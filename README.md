@@ -225,7 +225,7 @@ The solution contains two .NET projects:
 | Project | Purpose |
 | --- | --- |
 | `ProductCaptures` | The CLI, capture providers, rendering and publication. |
-| `ProductCaptures.Tests` | MSTest tests for configuration, composition and host behavior, organized in separate folders. |
+| `ProductCaptures.Tests` | xUnit tests for configuration, composition and host behavior, organized in separate folders. |
 
 Host providers remain part of the CLI; they do not need a separate production assembly. Node integration and adapter tests live in `tests/node`, use Node's built-in runner and strict assertions, and require no JavaScript test framework.
 
@@ -236,7 +236,7 @@ dotnet test --solution ProductCaptures.slnx --no-build
 node --test tests/node/*.test.mjs
 ```
 
-Use Node 22 and the .NET 10 SDK. The test project uses MSTest.Sdk 4.5.2 and Microsoft.Testing.Platform with optional extensions disabled. Browser tests use isolated contexts; filesystem and process tests own their temporary resources and clean them up on failure. The production project still pins Microsoft.Playwright 1.62.0, and the small host adapter pins `obsidian-launcher` 3.4.0.
+Use Node 22 and the .NET 10 SDK. The test project uses xUnit v3 (4.0.2), FluentAssertions 8.11.0 and Microsoft.Testing.Platform. Browser tests use isolated contexts; filesystem and process tests own their temporary resources and clean them up on failure. The production project still pins Microsoft.Playwright 1.62.0, and the small host adapter pins `obsidian-launcher` 3.4.0.
 
 Before publication, verify formatting with `dotnet format <project> --verify-no-changes --no-restore` for `ProductCaptures.csproj` and `tests/ProductCaptures.Tests/ProductCaptures.Tests.csproj`, then run both test suites and the generic browser capture in CI. The SDK analyzers and `.editorconfig` enforce the configured style. CI also checks the same-revision reusable workflows.
 
