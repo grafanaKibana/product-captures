@@ -1,0 +1,4 @@
+# Keep the official documentation and licenses byte-identical to upstream.
+/docs/standards/csharp-dotnet.md -text
+/docs/standards/LICENSE -text
+/docs/standards/LICENSE-CODE -text

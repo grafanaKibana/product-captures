@@ -2,6 +2,4 @@
 applyTo: "**/*.cs,**/*.csproj,**/*.props,**/*.targets,**/global.json,**/NuGet.Config,**/nuget.config,**/*.sln,**/*.slnx"
 ---
 
-Read and apply the complete [C#/.NET standard](../../docs/standards/csharp-dotnet.md) before editing. Its rules and examples are self-contained; source links are optional further reading. Honor closer project exceptions.
-
-For cleanup, name the structural problem and preserve contracts, evaluation order and resource/cancellation lifetimes. Replace dense expressions with clear stages where useful; formatting or helper extraction alone is not improved design. Review behavior, structure, style and evidence separately. Use the official `csharp-refactoring` skill when available for structural cleanup; ordinary edits still follow the standard without it. Run configured formatters, analyzers, relevant tests and builds. Do not add dependencies/frameworks for style or reformat unrelated files.
+Read Microsoft's full maintained [C# coding conventions](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions?accept=text/markdown), including its examples, before C#/.NET edits. An unchanged [official Markdown snapshot](../../docs/standards/csharp-dotnet.md) is available offline. The rules are maintained upstream by Microsoft; do not substitute a generated summary or project checklist. Respect explicit repository constraints and supported language versions. Use the official `csharp-refactoring` skill when available for behavior-preserving structural cleanup.
