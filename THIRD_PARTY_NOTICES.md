@@ -2,7 +2,6 @@
 
 The MIT license covers authored toolkit code and documentation. It does not relicense the third-party materials listed here.
 
-- `docs/standards/csharp-dotnet.md` is Microsoft's unchanged official C# conventions article, including its examples, exported from Microsoft Learn. The documentation retains CC BY 4.0 and the example code retains MIT; both licenses are reproduced beside it. See `docs/standards/NOTICE.md` for the maintained source and refresh instructions.
 - `assets/Geist.ttf` is distributed under the SIL Open Font License 1.1, reproduced in `assets/Geist-LICENSE` with its copyright notice.
 - `assets/obsidian-icon.svg`, `assets/obsidian-lockup-light.svg`, and `assets/obsidian-lockup-dark.svg` are unchanged official Obsidian branding. They remain subject to upstream rights and branding terms; they are not covered by the toolkit's MIT grant. Obsidian names and marks belong to their owner. Source URLs, acquisition date, byte counts and SHA256 hashes are recorded in `assets/obsidian-branding.provenance.json`. See https://obsidian.md/brand for upstream branding guidance. Inclusion does not imply endorsement or grant trademark rights.
 - `assets/alpine-plate.png` is a fixed decorative image generated once with the built-in image tool for this toolkit's compositions. Its prompt, role and SHA256 are recorded in `assets/alpine-plate.provenance.json`. It is not claimed to depict a documented real location. Regeneration reuses this local plate without calling an image-generation service.

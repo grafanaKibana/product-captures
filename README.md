@@ -220,7 +220,7 @@ The validation workflow accepts only `config`. The Action passes the caller's Gi
 
 ## Development and releases
 
-Follow Microsoft's maintained [C# coding conventions](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions), also linked by the scoped Codex, Cursor and Copilot instructions. The [offline copy](docs/standards/csharp-dotnet.md) contains the complete official article and examples unchanged; [source, licenses and refresh instructions](docs/standards/NOTICE.md) accompany it. Build with `dotnet build ProductCaptures.csproj`. CI runs C# core, composition, and host checks, a fresh generic capture, and same-revision reusable-workflow checks. The tiny Node adapter pins `obsidian-launcher` 3.4.0; the C# project pins Microsoft.Playwright 1.62.0.
+Build with `dotnet build ProductCaptures.csproj`. CI runs C# core, composition, and host checks, a fresh generic capture, and same-revision reusable-workflow checks. The tiny Node adapter pins `obsidian-launcher` 3.4.0; the C# project pins Microsoft.Playwright 1.62.0.
 
 Before publication, run `dotnet format <project> --verify-no-changes --no-restore` and `dotnet build <project>` for `ProductCaptures.csproj`, `test/CompositionTests.csproj` and `test/Hosts/Hosts.csproj`, then the core/adapter, composition, host and generic browser checks in CI. The SDK analyzers and `.editorconfig` enforce the configured style without extra analyzer packages.
 
