@@ -1,6 +1,3 @@
-using System.Text.Json;
-using System.Text.RegularExpressions;
-
 namespace ProductCaptures;
 
 public static class Program
@@ -105,13 +102,7 @@ public static class Program
 
     private static async Task<int> RunActionAsync(string[] args, CancellationToken cancellationToken)
     {
-        if (args.Length != 2 || !new[]
-        {
-                    "plan",
-                    "run",
-                    "release",
-                    "pr"
-                }.Contains(args[1]))
+        if (args.Length != 2 || args[1] is not ("plan" or "run" or "release" or "pr"))
         {
             throw new ArgumentException("action requires plan, run, release or pr");
         }
@@ -129,7 +120,18 @@ public static class Program
             }, cancellationToken);
             if (Environment.GetEnvironmentVariable("GITHUB_OUTPUT") is { Length: > 0 } output)
             {
-                await File.AppendAllTextAsync(output, $"artifact-path={Path.GetRelativePath(workspace, artifact).Replace('\\', '/')}\nneeds-obsidian={(config.Capture?.Type == "obsidian" && !action.Options.ReuseScreenshots).ToString().ToLowerInvariant()}\nneeds-node={(config.Capture is not null && !action.Options.ReuseScreenshots && action.Options.Url is null && (config.Build is not null || config.Capture.Type == "obsidian" || config.Quartz is not null)).ToString().ToLowerInvariant()}\ndry-run={action.Options.DryRun.ToString().ToLowerInvariant()}\n");
+                string artifactPath = Path.GetRelativePath(workspace, artifact).Replace('\\', '/');
+                bool needsObsidian = config.Capture?.Type == "obsidian" && !action.Options.ReuseScreenshots;
+                bool needsNode = config.Capture is not null
+                    && !action.Options.ReuseScreenshots
+                    && action.Options.Url is null
+                    && (config.Build is not null || config.Capture.Type == "obsidian" || config.Quartz is not null);
+                string planOutput = $"artifact-path={artifactPath}\n"
+                    + $"needs-obsidian={needsObsidian.ToString().ToLowerInvariant()}\n"
+                    + $"needs-node={needsNode.ToString().ToLowerInvariant()}\n"
+                    + $"dry-run={action.Options.DryRun.ToString().ToLowerInvariant()}\n";
+
+                await File.AppendAllTextAsync(output, planOutput);
             }
         }
         else if (args[1] == "run")
@@ -146,7 +148,6 @@ public static class Program
         }
 
         return 0;
-
     }
 }
 
@@ -154,13 +155,30 @@ public sealed record ActionOptions(string Config, RunOptions Options, string Rel
 {
     public static ActionOptions FromEnvironment()
     {
-        string Get(string key, string fallback = "") => Environment.GetEnvironmentVariable("CAPTURE_" + key) is { Length: > 0 } value ? value : fallback;
+        string Get(string key, string fallback = "") =>
+            Environment.GetEnvironmentVariable("CAPTURE_" + key) is { Length: > 0 } value ? value : fallback;
+
         bool Bool(string key, bool fallback = false) => Get(key, fallback ? "true" : "false") switch
         {
             "true" => true,
             "false" => false,
             _ => throw new ArgumentException($"CAPTURE_{key} must be true or false")
         };
-        return new(Get("CONFIG", "product-captures.json"), new(Bool("DRY_RUN", true), Bool("REUSE_SCREENSHOTS"), Get("URL") is { Length: > 0 } url ? url : null), Get("RELEASE_TAG"), Bool("UPDATE_PR"));
+        string configPath = Get("CONFIG", "product-captures.json");
+        bool dryRun = Bool("DRY_RUN", true);
+        bool reuseScreenshots = Bool("REUSE_SCREENSHOTS");
+        string? url = Get("URL") is { Length: > 0 } value ? value : null;
+        var options = new RunOptions(
+            DryRun: dryRun,
+            ReuseScreenshots: reuseScreenshots,
+            Url: url);
+        string releaseTag = Get("RELEASE_TAG");
+        bool updatePr = Bool("UPDATE_PR");
+
+        return new ActionOptions(
+            Config: configPath,
+            Options: options,
+            ReleaseTag: releaseTag,
+            UpdatePr: updatePr);
     }
 }

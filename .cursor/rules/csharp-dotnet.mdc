@@ -4,4 +4,6 @@ globs: "**/*.cs,**/*.csproj,**/*.props,**/*.targets,**/global.json,**/NuGet.Conf
 alwaysApply: false
 ---
 
-Read and follow [the canonical C#/.NET standard](../../docs/standards/csharp-dotnet.md). Honor closer project exceptions. Use four spaces, Allman braces, braces for control flow and one statement per line. Preserve contracts and resource/cancellation lifetimes; prefer focused helpers and existing patterns. Run configured formatter, analyzers, tests and builds; do not add dependencies for style.
+Read and apply the complete [C#/.NET standard](../../docs/standards/csharp-dotnet.md) before editing. Its rules and examples are self-contained; source links are optional further reading. Honor closer project exceptions.
+
+For cleanup, name the structural problem and preserve contracts, evaluation order and resource/cancellation lifetimes. Replace dense expressions with clear stages where useful; formatting or helper extraction alone is not improved design. Review behavior, structure, style and evidence separately. Use the official `csharp-refactoring` skill when available for structural cleanup; ordinary edits still follow the standard without it. Run configured formatters, analyzers, relevant tests and builds. Do not add dependencies/frameworks for style or reformat unrelated files.

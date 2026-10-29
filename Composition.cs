@@ -30,19 +30,31 @@ public static class Composition
         return new(area.Left + (area.Width - width) / 2, area.Top + (area.Height - height) / 2, width, height);
     }
 
-    private sealed record Geometry(Rect Frame, string IdentityStyle, string HeadingStyle, string PlatformStyle, double ImageWidth, double Offset, string Fit);
+    private sealed record Geometry(
+        Rect Frame,
+        string IdentityStyle,
+        string HeadingStyle,
+        string PlatformStyle,
+        double ImageWidth,
+        double Offset,
+        string Fit);
+
     private static Geometry Arrange(string layout, double width, double height, SourceImage? source, Appearance appearance, double unit, bool hasPlatform)
     {
         var ratio = source is { Width: > 0, Height: > 0 } ? (double)source.Width / source.Height : 1.44;
         var identityOnly = source is null;
-        string Heading(double left, double top, double headingWidth, double size, string align = "left") => $"position:absolute;left:{FormatNumber(left)}px;top:{FormatNumber(top)}px;width:{FormatNumber(headingWidth)}px;font-size:{FormatNumber(size * unit)}px;text-align:{align};";
+        string Heading(double left, double top, double headingWidth, double size, string align = "left") =>
+            $"position:absolute;left:{FormatNumber(left)}px;top:{FormatNumber(top)}px;"
+            + $"width:{FormatNumber(headingWidth)}px;font-size:{FormatNumber(size * unit)}px;text-align:{align};";
         if (layout == "column")
         {
             var area = new Rect(width * .35, height * .11, width * .61, height * .78);
-            var desktop = appearance.ImageFit == "contain";
-            var imageWidth = area.Width * appearance.ImageZoom;
-            var frame = desktop ? Contain(ratio, area) : new Rect(area.Left, 0, area.Width, Math.Min(area.Height, imageWidth / ratio));
-            if (!desktop)
+            bool containImage = appearance.ImageFit == "contain";
+            double imageWidth = area.Width * appearance.ImageZoom;
+            Rect frame = containImage
+                ? Contain(ratio, area)
+                : new Rect(area.Left, 0, area.Width, Math.Min(area.Height, imageWidth / ratio));
+            if (!containImage)
             {
                 frame = frame with
                 {
@@ -50,33 +62,89 @@ public static class Composition
                 };
             }
 
-            var identity = new Rect(identityOnly ? 0 : width * .035, frame.Top, identityOnly ? width : width * .27, frame.Height);
-            return new(frame, Rectangle(identity) + "display:block;", Heading(0, 0, identity.Width, 88, "center"), "position:absolute;left:0;right:auto;top:auto;bottom:0;width:100%;max-width:none;margin:0;justify-content:center;", desktop ? frame.Width : imageWidth, desktop ? 0 : appearance.ImageOffsetX * unit, desktop ? "contain" : "crop");
+            var identity = new Rect(
+                Left: identityOnly ? 0 : width * .035,
+                Top: frame.Top,
+                Width: identityOnly ? width : width * .27,
+                Height: frame.Height);
+            string platformStyle = "position:absolute;left:0;right:auto;top:auto;bottom:0;"
+                + "width:100%;max-width:none;margin:0;justify-content:center;";
+
+            return new Geometry(
+                Frame: frame,
+                IdentityStyle: Rectangle(identity) + "display:block;",
+                HeadingStyle: Heading(0, 0, identity.Width, 88, "center"),
+                PlatformStyle: platformStyle,
+                ImageWidth: containImage ? frame.Width : imageWidth,
+                Offset: containImage ? 0 : appearance.ImageOffsetX * unit,
+                Fit: containImage ? "contain" : "crop");
         }
 
         if (layout == "centered")
         {
             var top = height * (hasPlatform ? .29 : .20);
             var frame = Contain(ratio, new(width * .055, top, width * .89, height * .92 - top));
-            return new(frame, "display:contents;", Heading(width * .055, height * .055, width * .89, 72, "center"), $"position:absolute;left:{FormatNumber(width * .055)}px;right:auto;top:{FormatNumber(height * .16)}px;bottom:auto;width:{FormatNumber(width * .89)}px;max-width:none;margin:0;justify-content:center;", frame.Width, 0, "contain");
+            string platformStyle = $"position:absolute;left:{FormatNumber(width * .055)}px;right:auto;"
+                + $"top:{FormatNumber(height * .16)}px;bottom:auto;width:{FormatNumber(width * .89)}px;"
+                + "max-width:none;margin:0;justify-content:center;";
+
+            return new Geometry(
+                Frame: frame,
+                IdentityStyle: "display:contents;",
+                HeadingStyle: Heading(width * .055, height * .055, width * .89, 72, "center"),
+                PlatformStyle: platformStyle,
+                ImageWidth: frame.Width,
+                Offset: 0,
+                Fit: "contain");
         }
 
         if (layout == "horizontal")
         {
             var imageWidth = width * .89 * appearance.ImageZoom;
             var area = new Rect(width * .055, height * .24, width * .89, height * (appearance.FrameHeight ?? .65));
-            var frame = appearance.ImageFit == "contain" ? Contain(ratio, area) : area with
+            bool containImage = appearance.ImageFit == "contain";
+            Rect frame = containImage ? Contain(ratio, area) : area with
             {
                 Height = Math.Min(area.Height, imageWidth / ratio)
             };
-            return new(frame, "display:contents;", Heading(width * .055, height * .065, width * (identityOnly ? .89 : .55), 62, identityOnly ? "center" : "left"), $"position:absolute;left:{FormatNumber(width * (identityOnly ? .055 : .625))}px;right:auto;top:{FormatNumber(height * (identityOnly ? .16 : .09))}px;bottom:auto;width:{FormatNumber(width * (identityOnly ? .89 : .32))}px;max-width:none;margin:0;justify-content:{(identityOnly ? "center" : "flex-end")};", appearance.ImageFit == "contain" ? frame.Width : imageWidth, appearance.ImageFit == "contain" ? 0 : appearance.ImageOffsetX * unit, appearance.ImageFit == "contain" ? "contain" : "crop");
+            double headingWidth = width * (identityOnly ? .89 : .55);
+            string headingAlignment = identityOnly ? "center" : "left";
+            double platformLeft = width * (identityOnly ? .055 : .625);
+            double platformTop = height * (identityOnly ? .16 : .09);
+            double platformWidth = width * (identityOnly ? .89 : .32);
+            string platformAlignment = identityOnly ? "center" : "flex-end";
+            string platformStyle = $"position:absolute;left:{FormatNumber(platformLeft)}px;right:auto;"
+                + $"top:{FormatNumber(platformTop)}px;bottom:auto;width:{FormatNumber(platformWidth)}px;"
+                + $"max-width:none;margin:0;justify-content:{platformAlignment};";
+
+            return new Geometry(
+                Frame: frame,
+                IdentityStyle: "display:contents;",
+                HeadingStyle: Heading(width * .055, height * .065, headingWidth, 62, headingAlignment),
+                PlatformStyle: platformStyle,
+                ImageWidth: containImage ? frame.Width : imageWidth,
+                Offset: containImage ? 0 : appearance.ImageOffsetX * unit,
+                Fit: containImage ? "contain" : "crop");
         }
 
         if (layout == "top")
         {
             var top = height * .18;
             var imageWidth = Math.Min(width * .97, ((1 + appearance.EdgeBleed) * height - top) * ratio);
-            return new(new(width * .055, top, imageWidth, imageWidth / ratio), "display:contents;", Heading(width * .055, height * (hasPlatform ? .035 : .05), width * .89, 72, "center"), $"position:absolute;left:{FormatNumber(width * .055)}px;right:auto;top:{FormatNumber(height * .125)}px;bottom:auto;width:{FormatNumber(width * .89)}px;max-width:none;margin:0;justify-content:center;", imageWidth, 0, "bleed");
+            var frame = new Rect(width * .055, top, imageWidth, imageWidth / ratio);
+            double headingTop = height * (hasPlatform ? .035 : .05);
+            string platformStyle = $"position:absolute;left:{FormatNumber(width * .055)}px;right:auto;"
+                + $"top:{FormatNumber(height * .125)}px;bottom:auto;width:{FormatNumber(width * .89)}px;"
+                + "max-width:none;margin:0;justify-content:center;";
+
+            return new Geometry(
+                Frame: frame,
+                IdentityStyle: "display:contents;",
+                HeadingStyle: Heading(width * .055, headingTop, width * .89, 72, "center"),
+                PlatformStyle: platformStyle,
+                ImageWidth: imageWidth,
+                Offset: 0,
+                Fit: "bleed");
         }
 
         throw new ArgumentException("Unknown appearance.layout");
@@ -102,7 +170,11 @@ public static class Composition
         var dark = theme == "dark";
         var darkBackdrop = studio || dark;
         var quartz = platform.Equals("Quartz", StringComparison.OrdinalIgnoreCase) || config.Quartz is not null;
-        var paper = darkBackdrop ? Color(appearance.DarkBackground, studio ? (quartz ? "#18283e" : "#251a35") : "#10141a") : Color(appearance.Background, "#fcfcfb");
+        string studioPaper = quartz ? "#18283e" : "#251a35";
+        string darkPaper = studio ? studioPaper : "#10141a";
+        string paper = darkBackdrop
+            ? Color(appearance.DarkBackground, darkPaper)
+            : Color(appearance.Background, "#fcfcfb");
         var ink = darkBackdrop ? "#f2f4f6" : Color(appearance.Ink, "#252527");
         var studioTint = Color(appearance.Tint, quartz ? "#466e9b" : "#684487");
         var studioShade = Color(appearance.Shade, quartz ? "#243d66" : "#442b62");

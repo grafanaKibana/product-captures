@@ -22,6 +22,58 @@ test('reuse requires both valid existing PNGs',t=>{const root=fixture();cleanup(
 test('action plan emits six-input outputs while remaining dry',t=>{const root=fixture();cleanup(t,root);const output=path.join(root,'output');const r=spawnSync('dotnet',[dll,'action','plan'],{cwd:root,encoding:'utf8',env:{...process.env,CAPTURE_CONFIG:path.join(root,'product-captures.json'),GITHUB_WORKSPACE:root,GITHUB_OUTPUT:output}});assert.equal(r.status,0,r.stderr);assert.match(readFileSync(output,'utf8'),/needs-obsidian=false\nneeds-node=false\ndry-run=true/);assert(!existsSync(path.join(root,'docs')));});
 test('action boolean values are strict',t=>{const root=fixture();cleanup(t,root);const r=spawnSync('dotnet',[dll,'action','plan'],{cwd:root,encoding:'utf8',env:{...process.env,CAPTURE_CONFIG:path.join(root,'product-captures.json'),CAPTURE_DRY_RUN:'yes'}});assert.notEqual(r.status,0);assert.match(r.stderr,/true or false/);});
 const pixel=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j4N0AAAAASUVORK5CYII=','base64');
+test('action plan preserves exact output and prerequisites for fresh, preview, reuse and source-free runs', t => {
+  const cases = [
+    {name:'source-free', config:{capture:null}, obsidian:false, node:false},
+    {name:'web', config:{}, obsidian:false, node:false},
+    {name:'web build', config:{build:'touch should-not-build'}, obsidian:false, node:true},
+    {name:'preview build', config:{build:'touch should-not-build'}, env:{CAPTURE_URL:'https://preview.example'}, obsidian:false, node:false},
+    {name:'obsidian', config:{capture:{type:'obsidian'}}, obsidian:true, node:true},
+    {name:'reused obsidian', config:{capture:{type:'obsidian'}}, env:{CAPTURE_REUSE_SCREENSHOTS:'true'}, obsidian:false, node:false},
+    {name:'explicit capture', config:{}, env:{CAPTURE_DRY_RUN:'false'}, obsidian:false, node:false, dryRun:false},
+  ];
+  for (const entry of cases) {
+    const root = fixture({name:entry.name, ...entry.config});
+    cleanup(t, root);
+    const captures = path.join(root, 'docs/assets/product-captures/captures');
+    if (entry.env?.CAPTURE_REUSE_SCREENSHOTS === 'true') {
+      mkdirSync(captures, {recursive:true});
+      for (const theme of ['light', 'dark']) writeFileSync(path.join(captures, `overview-${theme}.png`), pixel);
+    }
+    const output = path.join(root, 'action-output');
+    writeFileSync(output, 'existing=value\n');
+    const result = spawnSync('dotnet', [dll, 'action', 'plan'], {
+      cwd:root, encoding:'utf8', env:{
+        ...process.env, CAPTURE_CONFIG:path.join(root, 'product-captures.json'),
+        CAPTURE_DRY_RUN:'', CAPTURE_REUSE_SCREENSHOTS:'', CAPTURE_URL:'',
+        CAPTURE_RELEASE_TAG:'', CAPTURE_UPDATE_PR:'', ...entry.env,
+        GITHUB_WORKSPACE:root, GITHUB_OUTPUT:output,
+      },
+    });
+    assert.equal(result.status, 0, `${entry.name}: ${result.stderr}`);
+    assert.equal(readFileSync(output, 'utf8'), 'existing=value\n' +
+      'artifact-path=docs/assets/product-captures\n' +
+      `needs-obsidian=${entry.obsidian}\nneeds-node=${entry.node}\ndry-run=${entry.dryRun ?? true}\n`);
+    assert.equal(JSON.parse(result.stdout).dryRun, true);
+    assert(!existsSync(path.join(root, 'should-not-build')));
+    assert(!existsSync(path.join(root, 'docs/assets/product-captures/hero.png')));
+  }
+});
+test('action environment rejects invalid booleans in the established order before config access', t => {
+  const root = fixture();
+  cleanup(t, root);
+  for (const [dryRun, reuse, expected] of [['invalid','invalid','DRY_RUN'], ['true','invalid','REUSE_SCREENSHOTS'], ['true','false','UPDATE_PR']]) {
+    const result = spawnSync('dotnet', [dll, 'action', 'plan'], {
+      cwd:root, encoding:'utf8', env:{
+        ...process.env, CAPTURE_CONFIG:path.join(root, 'missing.json'),
+        CAPTURE_DRY_RUN:dryRun, CAPTURE_REUSE_SCREENSHOTS:reuse,
+        CAPTURE_URL:'https://preview.example', CAPTURE_RELEASE_TAG:'v1.0.0', CAPTURE_UPDATE_PR:'invalid',
+      },
+    });
+    assert.equal(result.status, 1);
+    assert.equal(result.stderr.trim(), `CAPTURE_${expected} must be true or false`);
+  }
+});
 function pngs(root){return readdirSync(root,{recursive:true}).filter(p=>p.endsWith('.png')).sort();}
 test('real Chromium creates exactly four fixed1x PNGs; explicit reuse preserves raw bytes',t=>{const root=fixture({name:'Example',appearance:{width:400,height:300},capture:{type:'image',images:{light:'light.png',dark:'dark.png'}}});cleanup(t,root);for(const theme of ['light','dark'])writeFileSync(path.join(root,theme+'.png'),pixel);let r=run(root);assert.equal(r.status,0,r.stderr);const out=path.join(root,'docs/assets/product-captures');assert.deepEqual(pngs(out),['captures/overview-dark.png','captures/overview-light.png','hero-dark.png','hero.png']);assert.equal(readFileSync(path.join(out,'hero.png')).readUInt32BE(16),400);assert.equal(readFileSync(path.join(out,'hero.png')).readUInt32BE(20),300);assert.deepEqual(readFileSync(path.join(out,'captures/overview-light.png')),pixel);rmSync(path.join(root,'light.png'));rmSync(path.join(root,'dark.png'));r=run(root,['--reuse-screenshots']);assert.equal(r.status,0,r.stderr);assert.deepEqual(readFileSync(path.join(out,'captures/overview-light.png')),pixel);});
 test('real source-free render creates only finished light/dark pair',t=>{const root=fixture({name:'Example',capture:null,appearance:{width:400,height:300}});cleanup(t,root);const r=run(root);assert.equal(r.status,0,r.stderr);assert.deepEqual(pngs(path.join(root,'docs/assets/product-captures')),['hero-dark.png','hero.png']);});
