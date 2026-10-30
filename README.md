@@ -28,15 +28,13 @@ Node 22 is needed for Obsidian, Quartz, or your own Node build commands. Obsidia
 
 ## Add to a repository
 
-Copy [example.product-captures.json](example.product-captures.json) to `product-captures.json`, then add these two workflows.
+Copy [example.product-captures.json](example.product-captures.json) to `product-captures.json`, then add this manual workflow.
 
 `.github/workflows/product-captures.yml`:
 
 ```yaml
 name: Product captures
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -58,45 +56,23 @@ jobs:
   capture:
     uses: grafanaKibana/product-captures/.github/workflows/capture.yml@v2
     with:
-      dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
-      reuse-screenshots: ${{ inputs.reuse_screenshots || false }}
-      url: ${{ inputs.url || '' }}
-      release-tag: ${{ github.event.release.tag_name || '' }}
-      update-pr: ${{ github.event_name == 'release' || inputs.update_pr || false }}
+      dry-run: ${{ inputs.dry_run }}
+      reuse-screenshots: ${{ inputs.reuse_screenshots }}
+      url: ${{ inputs.url }}
+      update-pr: ${{ inputs.update_pr }}
 ```
 
-Release publication captures the tagged source, attaches the finished pair, and opens an image update PR. A manual run defaults to planning; turn off dry-run to capture and open the review PR.
+Open **Actions → Product captures → Run workflow**. Leave `dry_run` enabled to validate the configuration and preview the plan. Turn it off to capture both themes; `update_pr` controls whether the finished images open a review-only PR. Captures run only when this workflow is dispatched manually.
 
-If another job creates the release using `GITHUB_TOKEN`, GitHub does not trigger a second release workflow from that event. Add the composite Action immediately after that job's release step instead, using the tag produced by your release job:
+GitHub enables manual dispatch after the workflow exists on the repository's default branch. To preview from the command line:
 
-```yaml
-- name: Capture published release
-  uses: grafanaKibana/product-captures/actions/capture@v2
-  with:
-    dry-run: false
-    release-tag: ${{ steps.release.outputs.tag_name }}
-    update-pr: true
+```sh
+gh workflow run product-captures.yml --repo owner/repo -f dry_run=true
 ```
 
-The surrounding job must check out that tag with `persist-credentials: false` and grant `contents: write` and `pull-requests: write`. Choose this direct integration or the release-event workflow for a given release so it is captured once.
+The write permissions support opening an image PR. For artifact-only runs, disable `update_pr` and use `contents: read`.
 
-Write permissions are needed only when uploading to a release or opening an image PR. An artifact-only caller can use `contents: read`.
-
-`.github/workflows/product-captures-check.yml`:
-
-```yaml
-name: Validate product captures
-on:
-  pull_request:
-    paths: [product-captures.json, .github/workflows/product-captures*.yml]
-permissions:
-  contents: read
-jobs:
-  validate:
-    uses: grafanaKibana/product-captures/.github/workflows/validate.yml@v2
-```
-
-The shared workflows use their own revision's capture Action and check out the caller's source without persisted credentials. Validation always uses dry-run. Add `.product-captures-cache/` to the consumer's `.gitignore` when using Obsidian or Quartz.
+The shared workflow uses its own revision's capture Action and checks out the caller's source without persisted credentials. Dry-run performs configuration validation within the manual workflow. Add `.product-captures-cache/` to the consumer's `.gitignore` when using Obsidian or Quartz.
 
 ## Use the images in a README
 
@@ -220,9 +196,25 @@ The validation workflow accepts only `config`. The Action passes the caller's Gi
 
 ## Development and releases
 
-Follow the reusable [C#/.NET standard](docs/standards/csharp-dotnet.md), also linked by the scoped Codex, Cursor and Copilot instructions. Build with `dotnet build ProductCaptures.csproj`. CI runs C# core, composition, and host checks, a fresh generic capture, and same-revision reusable-workflow checks. The tiny Node adapter pins `obsidian-launcher` 3.4.0; the C# project pins Microsoft.Playwright 1.62.0.
+The solution contains two .NET projects:
 
-Before publication, run `dotnet format <project> --verify-no-changes --no-restore` and `dotnet build <project>` for `ProductCaptures.csproj`, `test/CompositionTests.csproj` and `test/Hosts/Hosts.csproj`, then the core/adapter, composition, host and generic browser checks in CI. The SDK analyzers and `.editorconfig` enforce the configured style without extra analyzer packages.
+| Project | Purpose |
+| --- | --- |
+| `ProductCaptures` | The CLI, capture providers, rendering and publication. |
+| `ProductCaptures.Tests` | xUnit tests for configuration, composition and host behavior, organized in separate folders. |
+
+Host providers remain part of the CLI; they do not need a separate production assembly. Node integration and adapter tests live in `tests/node`, use Node's built-in runner and strict assertions, and require no JavaScript test framework.
+
+```sh
+dotnet build ProductCaptures.slnx
+dotnet bin/Debug/net10.0/ProductCaptures.dll install
+dotnet test --solution ProductCaptures.slnx --no-build
+node --test tests/node/*.test.mjs
+```
+
+Use Node 22 and the .NET 10 SDK. The test project uses xUnit v3 (4.0.2), FluentAssertions 8.11.0 and Microsoft.Testing.Platform. Browser tests use isolated contexts; filesystem and process tests own their temporary resources and clean them up on failure. The production project still pins Microsoft.Playwright 1.62.0, and the small host adapter pins `obsidian-launcher` 3.4.0.
+
+Before publication, verify formatting with `dotnet format <project> --verify-no-changes --no-restore` for `ProductCaptures.csproj` and `tests/ProductCaptures.Tests/ProductCaptures.Tests.csproj`, then run both test suites and the generic browser capture in CI. The SDK analyzers and `.editorconfig` enforce the configured style. CI also checks the same-revision reusable workflows.
 
 Version 2 is a breaking configuration and Action-interface change; 2.0.1 is a compatible readability patch. After the candidate's current-SHA hosted checks pass, create its immutable version tag and publish with an explicit matching title, for example `gh release create v2.0.1 --title v2.0.1 --notes-file release-notes.md`. Release titles contain only the version tag. Advance the compatible floating `v2` ref only after those checks pass. Preserve existing immutable version tags for rollback.
 

@@ -5,84 +5,316 @@ using System.Text.RegularExpressions;
 namespace ProductCaptures;
 
 public sealed record SourceImage(int Width, int Height, string DataUri);
+
 public static class Composition
 {
     public static string ToolRoot { get; } = LocateRoot();
 
-    private static string LocateRoot([CallerFilePath] string sourceFile = "") => Directory.Exists(Path.Combine(AppContext.BaseDirectory, "assets")) ? AppContext.BaseDirectory : Path.GetDirectoryName(sourceFile)!;
-    private static string FormatNumber(double value) => value.ToString("G", CultureInfo.InvariantCulture);
-    private static string Escape(string value) => value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;").Replace("'", "&#39;");
-    private static string Color(string? value, string fallback) => value is not null && Regex.IsMatch(value, "^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$", RegexOptions.IgnoreCase) ? value : fallback;
+    private static string LocateRoot([CallerFilePath] string sourceFile = "") =>
+        Directory.Exists(Path.Combine(AppContext.BaseDirectory, "assets"))
+            ? AppContext.BaseDirectory
+            : Path.GetDirectoryName(sourceFile)!;
+
+    private static string FormatNumber(double value) =>
+        value.ToString("G", CultureInfo.InvariantCulture);
+
+    private static string Escape(string value) => value
+        .Replace("&", "&amp;")
+        .Replace("<", "&lt;")
+        .Replace(">", "&gt;")
+        .Replace("\"", "&quot;")
+        .Replace("'", "&#39;");
+
+    private static string Color(string? value, string fallback) =>
+        value is not null
+            && Regex.IsMatch(value,
+                "^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$",
+                RegexOptions.IgnoreCase)
+            ? value
+            : fallback;
+
     private static string Translucent(string value, double opacity)
     {
-        var raw = value[1..];
-        var expanded = raw.Length <= 4 ? string.Concat(raw.Select(c => new string(c, 2))) : raw;
-        var alpha = expanded.Length == 8 ? Convert.ToInt32(expanded[6..], 16) / 255d : 1;
+        string raw = value[1..];
+        string expanded = raw.Length <= 4
+            ? string.Concat(raw.Select(character => new string(character, 2)))
+            : raw;
+        double alpha = expanded.Length == 8
+            ? Convert.ToInt32(expanded[6..], 16) / 255d
+            : 1;
         return $"#{expanded[..6]}{(int)Math.Floor(alpha * opacity * 255 + .5):x2}";
     }
 
     private sealed record Rect(double Left, double Top, double Width, double Height);
-    private static string Rectangle(Rect rectangle) => $"position:absolute;left:{FormatNumber(rectangle.Left)}px;top:{FormatNumber(rectangle.Top)}px;width:{FormatNumber(rectangle.Width)}px;height:{FormatNumber(rectangle.Height)}px;";
+
+    private sealed record Geometry(
+        Rect Frame,
+        string IdentityStyle,
+        string HeadingStyle,
+        string PlatformStyle,
+        double ImageWidth,
+        double Offset,
+        string Fit);
+
+    private static string Rectangle(Rect rectangle) =>
+        $"position:absolute;left:{FormatNumber(rectangle.Left)}px;"
+        + $"top:{FormatNumber(rectangle.Top)}px;"
+        + $"width:{FormatNumber(rectangle.Width)}px;"
+        + $"height:{FormatNumber(rectangle.Height)}px;";
+
+    private static string Heading(
+        double left,
+        double top,
+        double width,
+        double size,
+        double unit,
+        string align = "left") =>
+        $"position:absolute;left:{FormatNumber(left)}px;top:{FormatNumber(top)}px;"
+        + $"width:{FormatNumber(width)}px;"
+        + $"font-size:{FormatNumber(size * unit)}px;text-align:{align};";
+
     private static Rect Contain(double ratio, Rect area)
     {
-        var width = Math.Min(area.Width, area.Height * ratio);
-        var height = width / ratio;
-        return new(area.Left + (area.Width - width) / 2, area.Top + (area.Height - height) / 2, width, height);
+        double width = Math.Min(area.Width, area.Height * ratio);
+        double height = width / ratio;
+        return new Rect(
+            Left: area.Left + (area.Width - width) / 2,
+            Top: area.Top + (area.Height - height) / 2,
+            Width: width,
+            Height: height);
     }
 
-    private sealed record Geometry(Rect Frame, string IdentityStyle, string HeadingStyle, string PlatformStyle, double ImageWidth, double Offset, string Fit);
-    private static Geometry Arrange(string layout, double width, double height, SourceImage? source, Appearance appearance, double unit, bool hasPlatform)
+    private static Geometry Arrange(
+        string layout,
+        double width,
+        double height,
+        SourceImage? source,
+        Appearance appearance,
+        double unit,
+        bool hasPlatform)
     {
-        var ratio = source is { Width: > 0, Height: > 0 } ? (double)source.Width / source.Height : 1.44;
-        var identityOnly = source is null;
-        string Heading(double left, double top, double headingWidth, double size, string align = "left") => $"position:absolute;left:{FormatNumber(left)}px;top:{FormatNumber(top)}px;width:{FormatNumber(headingWidth)}px;font-size:{FormatNumber(size * unit)}px;text-align:{align};";
-        if (layout == "column")
+        double ratio = source is { Width: > 0, Height: > 0 }
+            ? (double)source.Width / source.Height
+            : 1.44;
+        bool identityOnly = source is null;
+        return layout switch
         {
-            var area = new Rect(width * .35, height * .11, width * .61, height * .78);
-            var desktop = appearance.ImageFit == "contain";
-            var imageWidth = area.Width * appearance.ImageZoom;
-            var frame = desktop ? Contain(ratio, area) : new Rect(area.Left, 0, area.Width, Math.Min(area.Height, imageWidth / ratio));
-            if (!desktop)
-            {
-                frame = frame with
-                {
-                    Top = (height - frame.Height) / 2
-                };
-            }
-
-            var identity = new Rect(identityOnly ? 0 : width * .035, frame.Top, identityOnly ? width : width * .27, frame.Height);
-            return new(frame, Rectangle(identity) + "display:block;", Heading(0, 0, identity.Width, 88, "center"), "position:absolute;left:0;right:auto;top:auto;bottom:0;width:100%;max-width:none;margin:0;justify-content:center;", desktop ? frame.Width : imageWidth, desktop ? 0 : appearance.ImageOffsetX * unit, desktop ? "contain" : "crop");
-        }
-
-        if (layout == "centered")
-        {
-            var top = height * (hasPlatform ? .29 : .20);
-            var frame = Contain(ratio, new(width * .055, top, width * .89, height * .92 - top));
-            return new(frame, "display:contents;", Heading(width * .055, height * .055, width * .89, 72, "center"), $"position:absolute;left:{FormatNumber(width * .055)}px;right:auto;top:{FormatNumber(height * .16)}px;bottom:auto;width:{FormatNumber(width * .89)}px;max-width:none;margin:0;justify-content:center;", frame.Width, 0, "contain");
-        }
-
-        if (layout == "horizontal")
-        {
-            var imageWidth = width * .89 * appearance.ImageZoom;
-            var area = new Rect(width * .055, height * .24, width * .89, height * (appearance.FrameHeight ?? .65));
-            var frame = appearance.ImageFit == "contain" ? Contain(ratio, area) : area with
-            {
-                Height = Math.Min(area.Height, imageWidth / ratio)
-            };
-            return new(frame, "display:contents;", Heading(width * .055, height * .065, width * (identityOnly ? .89 : .55), 62, identityOnly ? "center" : "left"), $"position:absolute;left:{FormatNumber(width * (identityOnly ? .055 : .625))}px;right:auto;top:{FormatNumber(height * (identityOnly ? .16 : .09))}px;bottom:auto;width:{FormatNumber(width * (identityOnly ? .89 : .32))}px;max-width:none;margin:0;justify-content:{(identityOnly ? "center" : "flex-end")};", appearance.ImageFit == "contain" ? frame.Width : imageWidth, appearance.ImageFit == "contain" ? 0 : appearance.ImageOffsetX * unit, appearance.ImageFit == "contain" ? "contain" : "crop");
-        }
-
-        if (layout == "top")
-        {
-            var top = height * .18;
-            var imageWidth = Math.Min(width * .97, ((1 + appearance.EdgeBleed) * height - top) * ratio);
-            return new(new(width * .055, top, imageWidth, imageWidth / ratio), "display:contents;", Heading(width * .055, height * (hasPlatform ? .035 : .05), width * .89, 72, "center"), $"position:absolute;left:{FormatNumber(width * .055)}px;right:auto;top:{FormatNumber(height * .125)}px;bottom:auto;width:{FormatNumber(width * .89)}px;max-width:none;margin:0;justify-content:center;", imageWidth, 0, "bleed");
-        }
-
-        throw new ArgumentException("Unknown appearance.layout");
+            "column" => ArrangeColumn(width, height, ratio, appearance, unit, identityOnly),
+            "centered" => ArrangeCentered(width, height, ratio, unit, hasPlatform),
+            "horizontal" => ArrangeHorizontal(width, height, ratio, appearance, unit, identityOnly),
+            "top" => ArrangeTop(width, height, ratio, appearance, unit, hasPlatform),
+            _ => throw new ArgumentException("Unknown appearance.layout")
+        };
     }
 
-    private static async Task<string> ReadAssetBase64Async(string file) => Convert.ToBase64String(await File.ReadAllBytesAsync(Path.Combine(ToolRoot, "assets", file)));
+    private static Geometry ArrangeColumn(
+        double width,
+        double height,
+        double ratio,
+        Appearance appearance,
+        double unit,
+        bool identityOnly)
+    {
+        var area = new Rect(width * .35, height * .11, width * .61, height * .78);
+        bool containImage = appearance.ImageFit == "contain";
+        double imageWidth = area.Width * appearance.ImageZoom;
+        Rect frame = containImage
+            ? Contain(ratio, area)
+            : new Rect(area.Left, 0, area.Width, Math.Min(area.Height, imageWidth / ratio));
+        if (!containImage)
+        {
+            frame = frame with
+            {
+                Top = (height - frame.Height) / 2
+            };
+        }
+
+        var identity = new Rect(
+            Left: identityOnly ? 0 : width * .035,
+            Top: frame.Top,
+            Width: identityOnly ? width : width * .27,
+            Height: frame.Height);
+        string platformStyle = "position:absolute;left:0;right:auto;top:auto;bottom:0;"
+            + "width:100%;max-width:none;margin:0;justify-content:center;";
+        return new Geometry(
+            Frame: frame,
+            IdentityStyle: Rectangle(identity) + "display:block;",
+            HeadingStyle: Heading(0, 0, identity.Width, 88, unit, "center"),
+            PlatformStyle: platformStyle,
+            ImageWidth: containImage ? frame.Width : imageWidth,
+            Offset: containImage ? 0 : appearance.ImageOffsetX * unit,
+            Fit: containImage ? "contain" : "crop");
+    }
+
+    private static Geometry ArrangeCentered(
+        double width,
+        double height,
+        double ratio,
+        double unit,
+        bool hasPlatform)
+    {
+        double top = height * (hasPlatform ? .29 : .20);
+        var area = new Rect(width * .055, top, width * .89, height * .92 - top);
+        Rect frame = Contain(ratio, area);
+        string platformStyle = $"position:absolute;left:{FormatNumber(width * .055)}px;right:auto;"
+            + $"top:{FormatNumber(height * .16)}px;bottom:auto;width:{FormatNumber(width * .89)}px;"
+            + "max-width:none;margin:0;justify-content:center;";
+        return new Geometry(
+            Frame: frame,
+            IdentityStyle: "display:contents;",
+            HeadingStyle: Heading(width * .055, height * .055, width * .89, 72, unit, "center"),
+            PlatformStyle: platformStyle,
+            ImageWidth: frame.Width,
+            Offset: 0,
+            Fit: "contain");
+    }
+
+    private static Geometry ArrangeHorizontal(
+        double width,
+        double height,
+        double ratio,
+        Appearance appearance,
+        double unit,
+        bool identityOnly)
+    {
+        double imageWidth = width * .89 * appearance.ImageZoom;
+        var area = new Rect(
+            width * .055, height * .24, width * .89,
+            height * (appearance.FrameHeight ?? .65));
+        bool containImage = appearance.ImageFit == "contain";
+        Rect frame = containImage ? Contain(ratio, area) : area with
+        {
+            Height = Math.Min(area.Height, imageWidth / ratio)
+        };
+        double headingWidth = width * (identityOnly ? .89 : .55);
+        string headingAlignment = identityOnly ? "center" : "left";
+        double platformLeft = width * (identityOnly ? .055 : .625);
+        double platformTop = height * (identityOnly ? .16 : .09);
+        double platformWidth = width * (identityOnly ? .89 : .32);
+        string platformAlignment = identityOnly ? "center" : "flex-end";
+        string platformStyle = $"position:absolute;left:{FormatNumber(platformLeft)}px;right:auto;"
+            + $"top:{FormatNumber(platformTop)}px;bottom:auto;width:{FormatNumber(platformWidth)}px;"
+            + $"max-width:none;margin:0;justify-content:{platformAlignment};";
+        return new Geometry(
+            Frame: frame,
+            IdentityStyle: "display:contents;",
+            HeadingStyle: Heading(width * .055, height * .065, headingWidth, 62, unit, headingAlignment),
+            PlatformStyle: platformStyle,
+            ImageWidth: containImage ? frame.Width : imageWidth,
+            Offset: containImage ? 0 : appearance.ImageOffsetX * unit,
+            Fit: containImage ? "contain" : "crop");
+    }
+
+    private static Geometry ArrangeTop(
+        double width,
+        double height,
+        double ratio,
+        Appearance appearance,
+        double unit,
+        bool hasPlatform)
+    {
+        double top = height * .18;
+        double imageWidth = Math.Min(
+            width * .97, ((1 + appearance.EdgeBleed) * height - top) * ratio);
+        var frame = new Rect(width * .055, top, imageWidth, imageWidth / ratio);
+        double headingTop = height * (hasPlatform ? .035 : .05);
+        string platformStyle = $"position:absolute;left:{FormatNumber(width * .055)}px;right:auto;"
+            + $"top:{FormatNumber(height * .125)}px;bottom:auto;width:{FormatNumber(width * .89)}px;"
+            + "max-width:none;margin:0;justify-content:center;";
+        return new Geometry(
+            Frame: frame,
+            IdentityStyle: "display:contents;",
+            HeadingStyle: Heading(width * .055, headingTop, width * .89, 72, unit, "center"),
+            PlatformStyle: platformStyle,
+            ImageWidth: imageWidth,
+            Offset: 0,
+            Fit: "bleed");
+    }
+
+    private static async Task<string> ReadAssetBase64Async(string file)
+    {
+        byte[] bytes = await File.ReadAllBytesAsync(Path.Combine(ToolRoot, "assets", file));
+        return Convert.ToBase64String(bytes);
+    }
+
+    private static async Task<string> PlatformContentAsync(
+        string platform,
+        bool obsidian,
+        bool darkBackdrop)
+    {
+        string content = $"<strong>{Escape(platform)}</strong>";
+        if (obsidian)
+        {
+            string brand = await ReadAssetBase64Async(
+                $"obsidian-lockup-{(darkBackdrop ? "dark" : "light")}.svg");
+            string companion = Regex.IsMatch(platform, "Quartz", RegexOptions.IgnoreCase)
+                ? "<strong class=\"companion\">&amp; Quartz</strong>"
+                : "";
+            content = $"""<img class="obsidian-brand" src="data:image/svg+xml;base64,{brand}" """
+                + """width="143" height="25" alt="Obsidian" />"""
+                + companion;
+        }
+
+        return content;
+    }
+
+    private static string PlatformLockup(
+        string platform,
+        string content,
+        bool obsidian,
+        bool quartz,
+        Geometry geometry)
+    {
+        if (platform.Length == 0)
+        {
+            return "";
+        }
+
+        string obsidianAttribute = obsidian ? " data-obsidian=\"true\"" : "";
+        string quartzAttribute = quartz ? " data-quartz=\"true\"" : "";
+        return $"""<div class="platform" aria-label="for {Escape(platform)}"{obsidianAttribute}{quartzAttribute} """
+            + $"""style="{geometry.PlatformStyle}"><span class="for-label">FOR</span>"""
+            + content
+            + "</div>";
+    }
+
+    private static string SourceFrame(
+        SourceImage? source,
+        Geometry geometry,
+        string name,
+        bool studio)
+    {
+        if (source is null)
+        {
+            return "";
+        }
+
+        string softness = studio
+            ? ""
+            : """<div class="softness" aria-hidden="true"></div>""";
+        return $"""<div class="window shot-0" data-fit="{geometry.Fit}" style="{Rectangle(geometry.Frame)}">"""
+            + $"""<img class="product-capture" src="{Escape(source.DataUri)}" alt="{name}" """
+            + $"""style="width:{FormatNumber(geometry.ImageWidth)}px;height:auto;margin-left:{FormatNumber(geometry.Offset)}px;" />"""
+            + softness
+            + "</div>";
+    }
+
+    private static async Task<string> StudioAtmosphereAsync(string tint, string shade)
+    {
+        string plate = await ReadAssetBase64Async("alpine-plate.png");
+        return $"""<div class="atmosphere" aria-hidden="true" style="background-image:linear-gradient(100deg,"""
+            + $"""color-mix(in srgb,{tint} 63%,transparent),color-mix(in srgb,{shade} 67%,transparent)),"""
+            + $"""url(data:image/png;base64,{plate})"></div><div class="light" aria-hidden="true"></div>""";
+    }
+
+    private static string SiteAtmosphere(string tint, string paper, bool dark)
+    {
+        string light = dark ? "#aab8cc" : "#ffffff";
+        string shadow = dark ? "#050810" : "#60758b";
+        return """<div class="site-surface" aria-hidden="true" data-material="optical-folds" """
+            + $"""style="--site-tint:{tint};--site-paper:{paper};--site-light:{light};--site-shadow:{shadow}"></div>""";
+    }
+
     public static async Task<string> RenderAsync(Config config, string theme, SourceImage? source)
     {
         if (theme is not ("light" or "dark"))
@@ -90,44 +322,56 @@ public static class Composition
             throw new ArgumentException("Unknown theme");
         }
 
-        var appearance = config.Appearance;
-        var width = appearance.Width;
-        var height = appearance.Height;
-        var unit = Math.Min(width / 1600d, height / 800d);
-        string Px(double value) => FormatNumber(Math.Floor(value * unit * 100 + .5) / 100) + "px";
-        var platform = Regex.Replace(config.Subtitle.Trim(), "^for\\s+", "", RegexOptions.IgnoreCase);
-        var studio = config.Capture?.Type == "obsidian" || config.Quartz is not null || Regex.IsMatch(platform, "^(Obsidian(?:\\s*&\\s*Quartz)?|Quartz)$", RegexOptions.IgnoreCase);
-        var layout = appearance.Layout ?? (studio ? "column" : "top");
-        var artDirection = studio ? "studio" : "porcelain";
-        var dark = theme == "dark";
-        var darkBackdrop = studio || dark;
-        var quartz = platform.Equals("Quartz", StringComparison.OrdinalIgnoreCase) || config.Quartz is not null;
-        var paper = darkBackdrop ? Color(appearance.DarkBackground, studio ? (quartz ? "#18283e" : "#251a35") : "#10141a") : Color(appearance.Background, "#fcfcfb");
-        var ink = darkBackdrop ? "#f2f4f6" : Color(appearance.Ink, "#252527");
-        var studioTint = Color(appearance.Tint, quartz ? "#466e9b" : "#684487");
-        var studioShade = Color(appearance.Shade, quartz ? "#243d66" : "#442b62");
-        var studioGlow = Color(appearance.Glow, quartz ? "#abc9ec" : "#c5a3f1");
-        var studioShadow = Color(appearance.DarkBackground, quartz ? "#18283e" : "#251a35");
-        var siteTint = Color(appearance.Tint, "#dfe8e4");
-        var fadeStart = appearance.FadeStart ?? .67;
-        var fadeEnd = appearance.FadeEnd ?? 1;
-        var blurStart = appearance.BlurStart ?? .62;
-        var imageZoom = FormatNumber(appearance.ImageZoom);
-        var imageOffsetX = appearance.ImageOffsetX;
-        var font = await ReadAssetBase64Async("Geist.ttf");
-        var name = Escape(config.Name);
-        var geometry = Arrange(layout, width, height, source, appearance, unit, platform.Length > 0);
-        var obsidian = Regex.IsMatch(platform, "^Obsidian(?:\\s*&\\s*Quartz)?$", RegexOptions.IgnoreCase);
-        var platformContent = $"<strong>{Escape(platform)}</strong>";
-        if (obsidian)
-        {
-            platformContent = $"<img class=\"obsidian-brand\" src=\"data:image/svg+xml;base64,{await ReadAssetBase64Async($"obsidian-lockup-{(darkBackdrop ? "dark" : "light")}.svg")}\" width=\"143\" height=\"25\" alt=\"Obsidian\" />" + (Regex.IsMatch(platform, "Quartz", RegexOptions.IgnoreCase) ? "<strong class=\"companion\">&amp; Quartz</strong>" : "");
-        }
+        Appearance appearance = config.Appearance;
+        int width = appearance.Width;
+        int height = appearance.Height;
+        double unit = Math.Min(width / 1600d, height / 800d);
+        string Px(double value) =>
+            FormatNumber(Math.Floor(value * unit * 100 + .5) / 100) + "px";
 
-        var lockup = platform.Length == 0 ? "" : $"<div class=\"platform\" aria-label=\"for {Escape(platform)}\"{(obsidian ? " data-obsidian=\"true\"" : "")}{(quartz ? " data-quartz=\"true\"" : "")} style=\"{geometry.PlatformStyle}\"><span class=\"for-label\">FOR</span>{platformContent}</div>";
-        var frames = source is null ? "" : $"<div class=\"window shot-0\" data-fit=\"{geometry.Fit}\" style=\"{Rectangle(geometry.Frame)}\"><img class=\"product-capture\" src=\"{Escape(source.DataUri)}\" alt=\"{name}\" style=\"width:{FormatNumber(geometry.ImageWidth)}px;height:auto;margin-left:{FormatNumber(geometry.Offset)}px;\" />{(studio ? "" : "<div class=\"softness\" aria-hidden=\"true\"></div>")}</div>";
-        var atmosphere = studio ? $"<div class=\"atmosphere\" aria-hidden=\"true\" style=\"background-image:linear-gradient(100deg,color-mix(in srgb,{studioTint} 63%,transparent),color-mix(in srgb,{studioShade} 67%,transparent)),url(data:image/png;base64,{await ReadAssetBase64Async("alpine-plate.png")})\"></div><div class=\"light\" aria-hidden=\"true\"></div>" : $"<div class=\"site-surface\" aria-hidden=\"true\" data-material=\"optical-folds\" style=\"--site-tint:{siteTint};--site-paper:{paper};--site-light:{(dark ? "#aab8cc" : "#ffffff")};--site-shadow:{(dark ? "#050810" : "#60758b")}\"></div>";
-        var backgroundPosition = appearance.BackdropPosition is "left" or "center" or "right" ? appearance.BackdropPosition : "center";
+        string platform = Regex.Replace(
+            config.Subtitle.Trim(), "^for\\s+", "", RegexOptions.IgnoreCase);
+        bool studio = config.Capture?.Type == "obsidian"
+            || config.Quartz is not null
+            || Regex.IsMatch(platform,
+                "^(Obsidian(?:\\s*&\\s*Quartz)?|Quartz)$", RegexOptions.IgnoreCase);
+        string layout = appearance.Layout ?? (studio ? "column" : "top");
+        string artDirection = studio ? "studio" : "porcelain";
+        bool dark = theme == "dark";
+        bool darkBackdrop = studio || dark;
+        bool quartz = platform.Equals("Quartz", StringComparison.OrdinalIgnoreCase)
+            || config.Quartz is not null;
+        string studioPaper = quartz ? "#18283e" : "#251a35";
+        string darkPaper = studio ? studioPaper : "#10141a";
+        string paper = darkBackdrop
+            ? Color(appearance.DarkBackground, darkPaper)
+            : Color(appearance.Background, "#fcfcfb");
+        string ink = darkBackdrop ? "#f2f4f6" : Color(appearance.Ink, "#252527");
+        string studioTint = Color(appearance.Tint, quartz ? "#466e9b" : "#684487");
+        string studioShade = Color(appearance.Shade, quartz ? "#243d66" : "#442b62");
+        string studioGlow = Color(appearance.Glow, quartz ? "#abc9ec" : "#c5a3f1");
+        string studioShadow = Color(appearance.DarkBackground, quartz ? "#18283e" : "#251a35");
+        string siteTint = Color(appearance.Tint, "#dfe8e4");
+        double fadeStart = appearance.FadeStart ?? .67;
+        double fadeEnd = appearance.FadeEnd ?? 1;
+        double blurStart = appearance.BlurStart ?? .62;
+        string imageZoom = FormatNumber(appearance.ImageZoom);
+        double imageOffsetX = appearance.ImageOffsetX;
+        string font = await ReadAssetBase64Async("Geist.ttf");
+        string name = Escape(config.Name);
+        Geometry geometry = Arrange(
+            layout, width, height, source, appearance, unit, platform.Length > 0);
+        bool obsidian = Regex.IsMatch(
+            platform, "^Obsidian(?:\\s*&\\s*Quartz)?$", RegexOptions.IgnoreCase);
+        string platformContent = await PlatformContentAsync(platform, obsidian, darkBackdrop);
+        string lockup = PlatformLockup(platform, platformContent, obsidian, quartz, geometry);
+        string frames = SourceFrame(source, geometry, name, studio);
+        string atmosphere = studio
+            ? await StudioAtmosphereAsync(studioTint, studioShade)
+            : SiteAtmosphere(siteTint, paper, dark);
+        string? backgroundPosition = appearance.BackdropPosition is "left" or "center" or "right"
+            ? appearance.BackdropPosition
+            : "center";
         return $$"""
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width={{width}},initial-scale=1"><title>{{name}}</title><style>
   @font-face{font-family:CaptureGeist;src:url(data:font/ttf;base64,{{font}}) format('truetype');font-display:block}

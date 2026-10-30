@@ -43,47 +43,61 @@ public sealed class Config
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
         WriteIndented = true
     };
+
     public static Config Load(string path)
     {
         path = Path.GetFullPath(path);
-        var bytes = File.ReadAllBytes(path);
-        var config = JsonSerializer.Deserialize<Config>(bytes, Json) ?? throw new ArgumentException("Config must be an object");
+        byte[] bytes = File.ReadAllBytes(path);
+        Config config = JsonSerializer.Deserialize<Config>(bytes, Json)
+            ?? throw new ArgumentException("Config must be an object");
         config.Root = Path.GetDirectoryName(path)!;
         config.ConfigPath = path;
         config.ConfigHash = Convert.ToHexStringLower(SHA256.HashData(bytes));
-        using var document = JsonDocument.Parse(bytes);
-        var json = document.RootElement;
+
+        using JsonDocument document = JsonDocument.Parse(bytes);
+        JsonElement json = document.RootElement;
         RejectDuplicates(json);
-        foreach (var property in json.EnumerateObject())
+        ValidateProperties(json);
+        config.ApplyDefaults(json);
+        config.Validate();
+        return config;
+    }
+
+    private static void ValidateProperties(JsonElement json)
+    {
+        foreach (JsonProperty property in json.EnumerateObject())
         {
-            if (property.Name is not ("name" or "subtitle" or "output" or "appearance" or "capture" or "build" or "server" or "quartz"))
+            if (property.Name is not (
+                "name" or "subtitle" or "output" or "appearance"
+                or "capture" or "build" or "server" or "quartz"))
             {
                 throw new ArgumentException($"Unknown config property: {property.Name}");
             }
         }
 
-        if (json.TryGetProperty("appearance", out var ap) && ap.ValueKind == JsonValueKind.Object && ap.TryGetProperty("layout", out var layout) && layout.ValueKind != JsonValueKind.String)
+        if (json.TryGetProperty("appearance", out JsonElement appearance)
+            && appearance.ValueKind == JsonValueKind.Object
+            && appearance.TryGetProperty("layout", out JsonElement layout)
+            && layout.ValueKind != JsonValueKind.String)
         {
             throw new ArgumentException("appearance.layout must be a string");
         }
-
-        config.ApplyDefaults(json);
-
-        config.Validate();
-        return config;
     }
 
     private void ApplyDefaults(JsonElement json)
     {
         if (!json.TryGetProperty("subtitle", out _))
         {
-            Subtitle = Quartz is not null ? "for Quartz" : Capture?.Type == "obsidian" ? "for Obsidian" : "";
+            Subtitle = DefaultSubtitle();
         }
 
         if (Appearance is not null)
         {
-            Appearance.Layout ??= Quartz is not null || Capture?.Type == "obsidian" || Subtitle.Contains("Obsidian", StringComparison.OrdinalIgnoreCase) || Subtitle.Contains("Quartz", StringComparison.OrdinalIgnoreCase) ? "column" : "top";
-            if (!json.TryGetProperty("appearance", out var appearance) || !appearance.TryGetProperty("height", out _))
+            Appearance.Layout ??= Quartz is not null || UsesPluginLayout()
+                ? "column"
+                : "top";
+            if (!json.TryGetProperty("appearance", out JsonElement appearance)
+                || !appearance.TryGetProperty("height", out _))
             {
                 Appearance.Height = Appearance.Layout switch
                 {
@@ -94,19 +108,41 @@ public sealed class Config
             }
         }
 
-        if (Capture is not null && (Quartz is not null || Capture.Type == "obsidian") && (!json.TryGetProperty("capture", out var capture) || !capture.TryGetProperty("viewport", out var viewport) || viewport.ValueKind == JsonValueKind.Object && !viewport.TryGetProperty("height", out _)))
+        if (Capture is not null
+            && (Quartz is not null || Capture.Type == "obsidian")
+            && UsesDefaultViewportHeight(json))
         {
             Capture.Viewport.Height = 1000;
         }
-
     }
+
+    private string DefaultSubtitle()
+    {
+        if (Quartz is not null)
+        {
+            return "for Quartz";
+        }
+
+        return Capture?.Type == "obsidian" ? "for Obsidian" : "";
+    }
+
+    private bool UsesPluginLayout() =>
+        Capture?.Type == "obsidian"
+        || Subtitle.Contains("Obsidian", StringComparison.OrdinalIgnoreCase)
+        || Subtitle.Contains("Quartz", StringComparison.OrdinalIgnoreCase);
+
+    private static bool UsesDefaultViewportHeight(JsonElement json) =>
+        !json.TryGetProperty("capture", out JsonElement capture)
+        || !capture.TryGetProperty("viewport", out JsonElement viewport)
+        || (viewport.ValueKind == JsonValueKind.Object
+            && !viewport.TryGetProperty("height", out _));
 
     private static void RejectDuplicates(JsonElement element)
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
             var keys = new HashSet<string>();
-            foreach (var property in element.EnumerateObject())
+            foreach (JsonProperty property in element.EnumerateObject())
             {
                 if (!keys.Add(property.Name))
                 {
@@ -118,7 +154,7 @@ public sealed class Config
         }
         else if (element.ValueKind == JsonValueKind.Array)
         {
-            foreach (var item in element.EnumerateArray())
+            foreach (JsonElement item in element.EnumerateArray())
             {
                 RejectDuplicates(item);
             }
@@ -149,67 +185,68 @@ public sealed class Config
         {
             QuartzHost.Validate(this);
         }
+
         if (Build is { } build)
         {
             _ = BuildCommand.Parse(build, Root);
         }
+
         ValidateServer();
     }
 
     private void ValidateAppearance()
     {
-        Appearance.Layout ??= Capture?.Type == "obsidian" || Subtitle.Contains("Obsidian", StringComparison.OrdinalIgnoreCase) || Subtitle.Contains("Quartz", StringComparison.OrdinalIgnoreCase) ? "column" : "top";
-        if (!new[]
-        {
-            "column",
-            "horizontal",
-            "centered",
-            "top"
-        }.Contains(Appearance.Layout))
+        Appearance.Layout ??= UsesPluginLayout() ? "column" : "top";
+        if (Appearance.Layout is not ("column" or "horizontal" or "centered" or "top"))
         {
             throw new ArgumentException("Unknown appearance.layout");
         }
 
-        if (Appearance.Width is < 1 or > 8192 || Appearance.Height is < 1 or > 8192)
+        if (Appearance.Width is < 1 or > 8192
+            || Appearance.Height is < 1 or > 8192)
         {
             throw new ArgumentException("Invalid artwork dimensions");
         }
 
-        foreach (var color in new[]
-        {
+        string?[] colors =
+        [
             Appearance.Background,
             Appearance.DarkBackground,
             Appearance.Tint,
             Appearance.Shade,
             Appearance.Glow,
             Appearance.Ink
-        }
-
-        )
+        ];
+        foreach (string? color in colors)
         {
-            if (color is not null && !Regex.IsMatch(color, "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"))
+            if (color is not null && !Regex.IsMatch(color,
+                "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"))
             {
                 throw new ArgumentException("Appearance colors must be hexadecimal CSS colors");
             }
         }
 
-        if (Appearance.Background is null || Appearance.ImageFit is not ("crop" or "contain") || !double.IsFinite(Appearance.ImageZoom) || Appearance.ImageZoom is <= 0 or > 10 || !double.IsFinite(Appearance.ImageOffsetX))
+        if (Appearance.Background is null
+            || Appearance.ImageFit is not ("crop" or "contain")
+            || !double.IsFinite(Appearance.ImageZoom)
+            || Appearance.ImageZoom is <= 0 or > 10
+            || !double.IsFinite(Appearance.ImageOffsetX))
         {
             throw new ArgumentException("Invalid appearance image settings");
         }
 
-        foreach (var fraction in new[]
-        {
+        double?[] fractions =
+        [
             Appearance.FrameHeight,
             Appearance.EdgeBleed,
             Appearance.FadeStart,
             Appearance.FadeEnd,
             Appearance.BlurStart
-        }
-
-        )
+        ];
+        foreach (double? fraction in fractions)
         {
-            if (fraction is { } f && (!double.IsFinite(f) || f is < 0 or > 1))
+            if (fraction is { } value
+                && (!double.IsFinite(value) || value is < 0 or > 1))
             {
                 throw new ArgumentException("Appearance fractions must be between 0 and 1");
             }
@@ -224,121 +261,159 @@ public sealed class Config
         {
             throw new ArgumentException("backdropPosition must be left, center or right");
         }
-
     }
 
     private void ValidateCapture()
     {
-
-        if (Capture is { } capture)
+        if (Capture is not { } capture)
         {
-            if (capture.Url is null || Regex.IsMatch(capture.Url, "^[A-Za-z][A-Za-z0-9+.-]*:") && (!Uri.TryCreate(capture.Url, UriKind.Absolute, out var captureUri) || captureUri.Scheme is not ("http" or "https")))
-            {
-                throw new ArgumentException("capture.url must be relative or HTTP");
-            }
-
-            if (!new[]
-            {
-                "web",
-                "obsidian",
-                "image"
-            }.Contains(capture.Type))
-            {
-                throw new ArgumentException("Unknown capture.type");
-            }
-
-            if (capture.Viewport is null || capture.Viewport.Width is < 1 or > 8192 || capture.Viewport.Height is < 1 or > 8192)
-            {
-                throw new ArgumentException("Invalid capture.viewport");
-            }
-
-            if (capture.Type == "obsidian" && (!Regex.IsMatch(capture.AppVersion ?? "", @"^\d+\.\d+\.\d+$") || !Regex.IsMatch(capture.InstallerVersion ?? "", @"^\d+\.\d+\.\d+$")))
-            {
-                throw new ArgumentException("Obsidian versions must be pinned x.y.z releases");
-            }
-
-            if (capture.Type == "image")
-            {
-                if (capture.Images is null)
-                {
-                    throw new ArgumentException("image capture requires images");
-                }
-
-                foreach (var theme in new[]
-                {
-                    "light",
-                    "dark"
-                }
-
-                )
-                {
-                    if (!capture.Images.TryGetValue(theme, out var file))
-                    {
-                        throw new ArgumentException($"Missing {theme} image");
-                    }
-                    else
-                    {
-                        Paths.Within(Root, file);
-                    }
-                }
-            }
-
-            foreach (var value in (capture.Storage ?? throw new ArgumentException("storage cannot be null")).Values)
-            {
-                if (value.ValueKind != JsonValueKind.String && !(value.ValueKind == JsonValueKind.Object && value.EnumerateObject().Count() == 2 && value.TryGetProperty("light", out var l) && l.ValueKind == JsonValueKind.String && value.TryGetProperty("dark", out var d) && d.ValueKind == JsonValueKind.String))
-                {
-                    throw new ArgumentException("storage values must be strings or {light,dark}");
-                }
-            }
-
-            foreach (var action in (capture.Actions ?? throw new ArgumentException("actions cannot be null")))
-            {
-                if (!new[]
-                {
-                    "click",
-                    "fill",
-                    "scroll"
-                }.Contains(action.Type) || (action.Type != "scroll" && string.IsNullOrWhiteSpace(action.Selector)) || (action.Type == "fill" && action.Value is null))
-                {
-                    throw new ArgumentException("Invalid capture action");
-                }
-            }
-
-            Paths.Within(Root, capture.Vault);
-            Paths.Within(Root, capture.PluginDir, true);
+            return;
         }
 
+        if (!IsCaptureUrl(capture.Url))
+        {
+            throw new ArgumentException("capture.url must be relative or HTTP");
+        }
+
+        if (capture.Type is not ("web" or "obsidian" or "image"))
+        {
+            throw new ArgumentException("Unknown capture.type");
+        }
+
+        if (capture.Viewport is null
+            || capture.Viewport.Width is < 1 or > 8192
+            || capture.Viewport.Height is < 1 or > 8192)
+        {
+            throw new ArgumentException("Invalid capture.viewport");
+        }
+
+        if (capture.Type == "obsidian"
+            && (!Regex.IsMatch(capture.AppVersion ?? "", @"^\d+\.\d+\.\d+$")
+                || !Regex.IsMatch(capture.InstallerVersion ?? "", @"^\d+\.\d+\.\d+$")))
+        {
+            throw new ArgumentException("Obsidian versions must be pinned x.y.z releases");
+        }
+
+        if (capture.Type == "image")
+        {
+            ValidateImages(capture);
+        }
+
+        ValidateStorage(capture);
+        ValidateActions(capture);
+        Paths.Within(Root, capture.Vault);
+        Paths.Within(Root, capture.PluginDir, true);
+    }
+
+    private static bool IsCaptureUrl(string? url)
+    {
+        if (url is null)
+        {
+            return false;
+        }
+
+        if (!Regex.IsMatch(url, "^[A-Za-z][A-Za-z0-9+.-]*:"))
+        {
+            return true;
+        }
+
+        return Uri.TryCreate(url, UriKind.Absolute, out Uri? uri)
+            && uri.Scheme is "http" or "https";
+    }
+
+    private void ValidateImages(Capture capture)
+    {
+        if (capture.Images is null)
+        {
+            throw new ArgumentException("image capture requires images");
+        }
+
+        string[] themes = ["light", "dark"];
+        foreach (string theme in themes)
+        {
+            if (!capture.Images.TryGetValue(theme, out string? file))
+            {
+                throw new ArgumentException($"Missing {theme} image");
+            }
+
+            Paths.Within(Root, file);
+        }
+    }
+
+    private static void ValidateStorage(Capture capture)
+    {
+        Dictionary<string, JsonElement> storage = capture.Storage
+            ?? throw new ArgumentException("storage cannot be null");
+        foreach (JsonElement value in storage.Values)
+        {
+            if (!IsStorageValue(value))
+            {
+                throw new ArgumentException("storage values must be strings or {light,dark}");
+            }
+        }
+    }
+
+    private static bool IsStorageValue(JsonElement value) =>
+        value.ValueKind == JsonValueKind.String
+        || (value.ValueKind == JsonValueKind.Object
+            && value.EnumerateObject().Count() == 2
+            && value.TryGetProperty("light", out JsonElement light)
+            && light.ValueKind == JsonValueKind.String
+            && value.TryGetProperty("dark", out JsonElement dark)
+            && dark.ValueKind == JsonValueKind.String);
+
+    private static void ValidateActions(Capture capture)
+    {
+        List<CaptureAction> actions = capture.Actions
+            ?? throw new ArgumentException("actions cannot be null");
+        foreach (CaptureAction action in actions)
+        {
+            if (action.Type is not ("click" or "fill" or "scroll")
+                || (action.Type != "scroll" && string.IsNullOrWhiteSpace(action.Selector))
+                || (action.Type == "fill" && action.Value is null))
+            {
+                throw new ArgumentException("Invalid capture action");
+            }
+        }
     }
 
     private void ValidateServer()
     {
-
-        if (Server is { } server)
+        if (Server is not { } server)
         {
-            if ((server.Directory is null) == (server.Command is null))
-            {
-                throw new ArgumentException("server requires directory or command");
-            }
+            return;
+        }
 
-            if (server.Directory is { } dir)
-            {
-                Paths.Within(Root, dir, true);
-            }
+        if ((server.Directory is null) == (server.Command is null))
+        {
+            throw new ArgumentException("server requires directory or command");
+        }
 
-            if (server.Port is < 1 or > 65535 || server.TimeoutMs < 1)
-            {
-                throw new ArgumentException("Invalid server port or timeout");
-            }
+        if (server.Directory is { } directory)
+        {
+            Paths.Within(Root, directory, true);
+        }
 
-            if (server.Command is not null && (string.IsNullOrWhiteSpace(server.Command) || !Uri.TryCreate(server.Url, UriKind.Absolute, out var uri) || uri.Scheme is not ("http" or "https")))
-            {
-                throw new ArgumentException("server command requires an HTTP url");
-            }
+        if (server.Port is < 1 or > 65535 || server.TimeoutMs < 1)
+        {
+            throw new ArgumentException("Invalid server port or timeout");
+        }
 
-            if (server.Command is not null && Uri.TryCreate(server.Url, UriKind.Absolute, out var commandUri) && commandUri.Host != "localhost" && (!System.Net.IPAddress.TryParse(commandUri.Host, out var address) || !System.Net.IPAddress.IsLoopback(address)))
-            {
-                throw new ArgumentException("Command server URL must be loopback");
-            }
+        if (server.Command is not null
+            && (string.IsNullOrWhiteSpace(server.Command)
+                || !Uri.TryCreate(server.Url, UriKind.Absolute, out Uri? uri)
+                || uri.Scheme is not ("http" or "https")))
+        {
+            throw new ArgumentException("server command requires an HTTP url");
+        }
+
+        if (server.Command is not null
+            && Uri.TryCreate(server.Url, UriKind.Absolute, out Uri? commandUri)
+            && commandUri.Host != "localhost"
+            && (!System.Net.IPAddress.TryParse(commandUri.Host, out System.Net.IPAddress? address)
+                || !System.Net.IPAddress.IsLoopback(address)))
+        {
+            throw new ArgumentException("Command server URL must be loopback");
         }
     }
 }
@@ -513,22 +588,35 @@ public sealed record BuildCommand(string Command, string Cwd, int TimeoutMs)
     {
         if (value.ValueKind == JsonValueKind.String)
         {
-            return new(value.GetString() is { Length: > 0 } s ? s : throw new ArgumentException("Empty build command"), root, 600000);
+            string? text = value.GetString();
+            if (text is not { Length: > 0 })
+            {
+                throw new ArgumentException("Empty build command");
+            }
+
+            return new BuildCommand(text, root, 600000);
         }
 
-        if (value.ValueKind != JsonValueKind.Object || value.EnumerateObject().Any(p => p.Name is not ("command" or "cwd" or "timeoutMs")))
+        if (value.ValueKind != JsonValueKind.Object
+            || value.EnumerateObject().Any(property =>
+                property.Name is not ("command" or "cwd" or "timeoutMs")))
         {
             throw new ArgumentException("Invalid build");
         }
 
-        var command = value.GetProperty("command").GetString();
-        var timeout = value.TryGetProperty("timeoutMs", out var t) ? t.GetInt32() : 600000;
+        string? command = value.GetProperty("command").GetString();
+        int timeout = value.TryGetProperty("timeoutMs", out JsonElement configuredTimeout)
+            ? configuredTimeout.GetInt32()
+            : 600000;
         if (string.IsNullOrWhiteSpace(command) || timeout < 1)
         {
             throw new ArgumentException("Invalid build command or timeout");
         }
 
-        return new(command, value.TryGetProperty("cwd", out var c) ? Paths.Within(root, c.GetString()!, true) : root, timeout);
+        string directory = value.TryGetProperty("cwd", out JsonElement configuredDirectory)
+            ? Paths.Within(root, configuredDirectory.GetString()!, true)
+            : root;
+        return new BuildCommand(command, directory, timeout);
     }
 }
 
@@ -537,18 +625,26 @@ public static class Paths
     public static string Within(string root, string path, bool allowRoot = false)
     {
         root = Path.GetFullPath(root);
-        var full = Path.GetFullPath(path, root);
-        var rel = Path.GetRelativePath(root, full);
-        if ((!allowRoot && rel == ".") || rel == ".." || rel.StartsWith(".." + Path.DirectorySeparatorChar) || Path.IsPathRooted(rel) || rel.Contains('\n') || rel.Contains('\r'))
+        string full = Path.GetFullPath(path, root);
+        string relative = Path.GetRelativePath(root, full);
+        if ((!allowRoot && relative == ".")
+            || relative == ".."
+            || relative.StartsWith(".." + Path.DirectorySeparatorChar)
+            || Path.IsPathRooted(relative)
+            || relative.Contains('\n')
+            || relative.Contains('\r'))
         {
             throw new ArgumentException($"Path must stay inside project: {path}");
         }
 
-        var current = root;
-        foreach (var part in rel.Split(Path.DirectorySeparatorChar))
+        string current = root;
+        foreach (string part in relative.Split(Path.DirectorySeparatorChar))
         {
             current = Path.Combine(current, part);
-            if (new FileInfo(current).LinkTarget is not null || new DirectoryInfo(current).LinkTarget is not null || (File.Exists(current) || Directory.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+            if (new FileInfo(current).LinkTarget is not null
+                || new DirectoryInfo(current).LinkTarget is not null
+                || ((File.Exists(current) || Directory.Exists(current))
+                    && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0))
             {
                 throw new ArgumentException($"Symlinks are not allowed in managed paths: {path}");
             }

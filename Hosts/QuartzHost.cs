@@ -8,7 +8,11 @@ public static class QuartzHost
 {
     public const string Revision = "97a2d05f80c4c50534959b1d0d41cc4b3895625e";
     public const string Upstream = "https://github.com/jackyzha0/quartz.git";
-    private static readonly string[] DefaultInputs = ["src", "types", "package.json", "package-lock.json", "tsconfig.json", "tsconfig.build.json", "tsup.config.ts", "LICENSE"];
+    private static readonly string[] DefaultInputs =
+    [
+        "src", "types", "package.json", "package-lock.json",
+        "tsconfig.json", "tsconfig.build.json", "tsup.config.ts", "LICENSE"
+    ];
     public static void Validate(Config config)
     {
         if (config.Quartz is not { } quartz)
@@ -26,24 +30,24 @@ public static class QuartzHost
             throw new ArgumentException("quartz.upstream must be an HTTPS Git repository");
         }
 
-        var plugin = Paths.Within(config.Root, quartz.PluginDir, true);
-        var content = Paths.Within(config.Root, quartz.Content);
-        var cache = Paths.Within(config.Root, ".product-captures-cache");
-        if (Overlaps(plugin, cache) && plugin != config.Root || Overlaps(content, cache))
+        string plugin = Paths.Within(config.Root, quartz.PluginDir, true);
+        string content = Paths.Within(config.Root, quartz.Content);
+        string cache = Paths.Within(config.Root, ".product-captures-cache");
+        if ((Overlaps(plugin, cache) && plugin != config.Root) || Overlaps(content, cache))
         {
             throw new ArgumentException("Quartz inputs must be separate from cache");
         }
 
         CheckTree(content);
-        var inputs = Inputs(quartz, plugin);
+        string[] inputs = Inputs(quartz, plugin);
         if (!inputs.Contains("package.json") || !inputs.Contains("package-lock.json"))
         {
             throw new ArgumentException("Quartz inputs require package.json and package-lock.json");
         }
 
-        foreach (var input in inputs)
+        foreach (string input in inputs)
         {
-            var path = Paths.Within(plugin, input);
+            string path = Paths.Within(plugin, input);
             if (Overlaps(path, cache))
             {
                 throw new ArgumentException("Quartz inputs must be separate from cache");
@@ -53,13 +57,8 @@ public static class QuartzHost
         }
 
         _ = Metadata(plugin);
-        foreach (var item in new[]
-        {
-            quartz.Options,
-            quartz.Configuration
-        }
-
-        )
+        JsonElement?[] settings = [quartz.Options, quartz.Configuration];
+        foreach (JsonElement? item in settings)
         {
             if (item is { } element && element.ValueKind != JsonValueKind.Object)
             {
@@ -75,13 +74,19 @@ public static class QuartzHost
 
     private static (string Name, int Order) Metadata(string plugin)
     {
-        using var package = JsonDocument.Parse(File.ReadAllText(Path.Combine(plugin, "package.json")));
-        if (!package.RootElement.TryGetProperty("quartz", out var metadata) || metadata.ValueKind != JsonValueKind.Object || !metadata.TryGetProperty("name", out var name) || name.ValueKind != JsonValueKind.String || !Regex.IsMatch(name.GetString()!, "^[a-z0-9]+(?:-[a-z0-9]+)*$"))
+        using JsonDocument package = JsonDocument.Parse(
+            File.ReadAllText(Path.Combine(plugin, "package.json")));
+        if (!package.RootElement.TryGetProperty("quartz", out JsonElement metadata)
+            || metadata.ValueKind != JsonValueKind.Object
+            || !metadata.TryGetProperty("name", out JsonElement name)
+            || name.ValueKind != JsonValueKind.String
+            || !Regex.IsMatch(name.GetString()!, "^[a-z0-9]+(?:-[a-z0-9]+)*$"))
         {
             throw new ArgumentException("Plugin package.json requires quartz.name metadata");
         }
 
-        if (metadata.TryGetProperty("defaultOrder", out var value) && (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out _)))
+        if (metadata.TryGetProperty("defaultOrder", out JsonElement value)
+            && (value.ValueKind != JsonValueKind.Number || !value.TryGetInt32(out _)))
         {
             throw new ArgumentException("Plugin quartz.defaultOrder must be an integer");
         }
@@ -89,11 +94,15 @@ public static class QuartzHost
         return (name.GetString()!, metadata.TryGetProperty("defaultOrder", out value) ? value.GetInt32() : 10);
     }
 
-    private static string[] Inputs(Quartz quartz, string plugin) => quartz.Inputs ?? DefaultInputs.Where(input => File.Exists(Path.Combine(plugin, input)) || Directory.Exists(Path.Combine(plugin, input))).ToArray();
-    private static bool Overlaps(string a, string b) => a == b || a.StartsWith(b + Path.DirectorySeparatorChar) || b.StartsWith(a + Path.DirectorySeparatorChar);
+    private static string[] Inputs(Quartz quartz, string plugin) => quartz.Inputs
+        ?? DefaultInputs.Where(input => File.Exists(Path.Combine(plugin, input))
+            || Directory.Exists(Path.Combine(plugin, input))).ToArray();
+    private static bool Overlaps(string a, string b) => a == b
+        || a.StartsWith(b + Path.DirectorySeparatorChar)
+        || b.StartsWith(a + Path.DirectorySeparatorChar);
     public static void CheckTree(string path, bool recursive = true)
     {
-        var attributes = File.GetAttributes(path);
+        FileAttributes attributes = File.GetAttributes(path);
         if ((attributes & FileAttributes.ReparsePoint) != 0)
         {
             throw new ArgumentException($"Symlink is not allowed in host input: {path}");
@@ -101,7 +110,7 @@ public static class QuartzHost
 
         if (recursive && (attributes & FileAttributes.Directory) != 0)
         {
-            foreach (var entry in Directory.EnumerateFileSystemEntries(path))
+            foreach (string entry in Directory.EnumerateFileSystemEntries(path))
             {
                 CheckTree(entry);
             }
@@ -113,7 +122,7 @@ public static class QuartzHost
         if (Directory.Exists(source))
         {
             Directory.CreateDirectory(destination);
-            foreach (var entry in Directory.EnumerateFileSystemEntries(source))
+            foreach (string entry in Directory.EnumerateFileSystemEntries(source))
             {
                 Copy(entry, Path.Combine(destination, Path.GetFileName(entry)));
             }
@@ -127,7 +136,7 @@ public static class QuartzHost
 
     private static void Merge(JsonObject target, JsonObject source)
     {
-        foreach (var item in source)
+        foreach (KeyValuePair<string, JsonNode?> item in source)
         {
             if (item.Value is JsonObject nested && target[item.Key] is JsonObject existing)
             {
@@ -143,17 +152,58 @@ public static class QuartzHost
     public static async Task<string> PrepareAsync(Config config, CancellationToken ct = default)
     {
         Validate(config);
-        var quartz = config.Quartz!;
-        var source = Paths.Within(config.Root, quartz.PluginDir, true);
-        var cache = Paths.Within(config.Root, ".product-captures-cache");
-        var host = Paths.Within(config.Root, ".product-captures-cache/quartz");
-        var plugin = Paths.Within(config.Root, ".product-captures-cache/plugin");
-        var revision = quartz.Revision ?? Revision;
-        var upstream = quartz.Upstream ?? Upstream;
+        Quartz quartz = config.Quartz!;
+        string source = Paths.Within(config.Root, quartz.PluginDir, true);
+        string cache = Paths.Within(config.Root, ".product-captures-cache");
+        string host = Paths.Within(config.Root, ".product-captures-cache/quartz");
+        string plugin = Paths.Within(config.Root, ".product-captures-cache/plugin");
+        string revision = quartz.Revision ?? Revision;
+        string upstream = quartz.Upstream ?? Upstream;
         Directory.CreateDirectory(cache);
         File.Delete(Paths.Within(cache, "fixture.json"));
-        var npm = OperatingSystem.IsWindows() ? "npm.cmd" : "npm";
-        Task<string> Run(string command, IEnumerable<string> args, string cwd) => Processes.RunAsync(command, args, cwd, cancellationToken: ct);
+        string npm = OperatingSystem.IsWindows() ? "npm.cmd" : "npm";
+
+        await PrepareHostAsync(host, revision, upstream, ct);
+        ValidateHostPaths(host);
+        if (!File.Exists(Path.Combine(host, "node_modules", ".package-lock.json")))
+        {
+            await Processes.RunAsync(
+                npm,
+                ["ci", "--no-audit", "--no-fund", "--cache", Path.Combine(cache, "npm-cache")],
+                host,
+                cancellationToken: ct);
+        }
+
+        JsonObject settings = await ReadSettingsAsync(config, quartz, host, ct);
+        await PreparePluginAsync(quartz, source, plugin, cache, npm, ct);
+        AddPluginSettings(settings, quartz, plugin);
+        await File.WriteAllTextAsync(
+            Path.Combine(host, "quartz.config.yaml"),
+            settings.ToJsonString(Config.Json),
+            ct);
+
+        await PrepareFixtureAsync(config, quartz, host, ct);
+        await Processes.RunAsync(
+            "node", ["quartz/bootstrap-cli.mjs", "plugin", "install", "--from-config"],
+            host, cancellationToken: ct);
+        await Processes.RunAsync(
+            "node", ["quartz/bootstrap-cli.mjs", "build"],
+            host, cancellationToken: ct);
+        string output = Paths.Within(host, "public");
+        if (!File.Exists(Path.Combine(output, "index.html")))
+        {
+            throw new InvalidOperationException("Quartz build did not produce public/index.html");
+        }
+
+        return output;
+    }
+
+    private static async Task PrepareHostAsync(
+        string host,
+        string revision,
+        string upstream,
+        CancellationToken ct)
+    {
         if (!File.Exists(Path.Combine(host, ".git", "HEAD")))
         {
             Directory.CreateDirectory(host);
@@ -162,24 +212,31 @@ public static class QuartzHost
                 throw new InvalidOperationException("Refusing non-empty Quartz cache");
             }
 
-            await Run("git", ["init", "-q"], host);
-            await Run("git", ["remote", "add", "origin", upstream], host);
-            await Run("git", ["fetch", "--depth", "1", "origin", revision], host);
-            await Run("git", ["checkout", "--detach", "FETCH_HEAD"], host);
+            await Processes.RunAsync("git", ["init", "-q"], host, cancellationToken: ct);
+            await Processes.RunAsync("git", ["remote", "add", "origin", upstream], host, cancellationToken: ct);
+            await Processes.RunAsync("git", ["fetch", "--depth", "1", "origin", revision], host, cancellationToken: ct);
+            await Processes.RunAsync("git", ["checkout", "--detach", "FETCH_HEAD"], host, cancellationToken: ct);
         }
 
-        if ((await Run("git", ["rev-parse", "HEAD"], host)).Trim() != revision)
+        string actualRevision = (await Processes.RunAsync(
+            "git", ["rev-parse", "HEAD"], host, cancellationToken: ct)).Trim();
+        if (actualRevision != revision)
         {
             throw new InvalidOperationException("Quartz cache has a different revision");
         }
 
-        if ((await Run("git", ["remote", "get-url", "origin"], host)).Trim() != upstream)
+        string actualOrigin = (await Processes.RunAsync(
+            "git", ["remote", "get-url", "origin"], host, cancellationToken: ct)).Trim();
+        if (actualOrigin != upstream)
         {
             throw new InvalidOperationException("Quartz cache has an unexpected origin");
         }
+    }
 
-        foreach (var path in new[]
-        {
+    private static void ValidateHostPaths(string host)
+    {
+        string[] paths =
+        [
             ".git",
             "node_modules",
             "package.json",
@@ -193,60 +250,109 @@ public static class QuartzHost
             "quartz/bootstrap-cli.mjs",
             ".quartz",
             "quartz.lock.json"
-        }
-
-        )
+        ];
+        foreach (string path in paths)
         {
             _ = Paths.Within(host, path);
         }
+    }
 
-        if (!File.Exists(Path.Combine(host, "node_modules", ".package-lock.json")))
+    private static async Task<JsonObject> ReadSettingsAsync(
+        Config config,
+        Quartz quartz,
+        string host,
+        CancellationToken ct)
+    {
+        string json = await Processes.RunAsync(
+            "node",
+            ["-e", "const fs=require('node:fs'); console.log(JSON.stringify(require('yaml').parse(fs.readFileSync('quartz.config.default.yaml','utf8'))))"],
+            host,
+            cancellationToken: ct);
+        JsonObject settings = JsonNode.Parse(json)!.AsObject();
+        JsonObject configuration = settings["configuration"]!.AsObject();
+        var defaults = new JsonObject
         {
-            await Run(npm, ["ci", "--no-audit", "--no-fund", "--cache", Path.Combine(cache, "npm-cache")], host);
-        }
-
-        var json = await Run("node", ["-e", "const fs=require('node:fs'); console.log(JSON.stringify(require('yaml').parse(fs.readFileSync('quartz.config.default.yaml','utf8'))))"], host);
-        var settings = JsonNode.Parse(json)!.AsObject();
-        var configuration = settings["configuration"]!.AsObject();
-        Merge(configuration, new JsonObject { ["pageTitle"] = quartz.Title ?? config.Name, ["baseUrl"] = "example.invalid", ["analytics"] = null, ["enablePopovers"] = false, ["theme"] = new JsonObject { ["fontOrigin"] = "local" } });
+            ["pageTitle"] = quartz.Title ?? config.Name,
+            ["baseUrl"] = "example.invalid",
+            ["analytics"] = null,
+            ["enablePopovers"] = false,
+            ["theme"] = new JsonObject
+            {
+                ["fontOrigin"] = "local"
+            }
+        };
+        Merge(configuration, defaults);
         if (quartz.Configuration is { } overrides)
         {
             Merge(configuration, JsonNode.Parse(overrides.GetRawText())!.AsObject());
         }
 
+        return settings;
+    }
+
+    private static async Task PreparePluginAsync(
+        Quartz quartz,
+        string source,
+        string plugin,
+        string cache,
+        string npm,
+        CancellationToken ct)
+    {
         if (Directory.Exists(plugin))
         {
             Directory.Delete(plugin, true);
         }
 
         Directory.CreateDirectory(plugin);
-        foreach (var input in Inputs(quartz, source))
+        foreach (string input in Inputs(quartz, source))
         {
             Copy(Paths.Within(source, input), Paths.Within(plugin, input));
         }
 
-        await Run(npm, ["ci", "--no-audit", "--no-fund", "--cache", Path.Combine(cache, "npm-cache")], plugin);
+        await Processes.RunAsync(
+            npm,
+            ["ci", "--no-audit", "--no-fund", "--cache", Path.Combine(cache, "npm-cache")],
+            plugin,
+            cancellationToken: ct);
         if (quartz.Build is { } build)
         {
-            var command = BuildCommand.Parse(build, plugin);
+            BuildCommand command = BuildCommand.Parse(build, plugin);
             await Processes.ShellAsync(command, ct);
         }
         else
         {
-            await Run(npm, ["run", "build"], plugin);
+            await Processes.RunAsync(npm, ["run", "build"], plugin, cancellationToken: ct);
         }
+    }
 
-        var (pluginName, order) = Metadata(plugin);
-        settings["plugins"]!.AsArray().Insert(0, new JsonObject { ["source"] = new JsonObject { ["repo"] = plugin, ["name"] = pluginName }, ["enabled"] = true, ["order"] = order, ["options"] = quartz.Options is { } options ? JsonNode.Parse(options.GetRawText()) : new JsonObject() });
-        await File.WriteAllTextAsync(Path.Combine(host, "quartz.config.yaml"), settings.ToJsonString(Config.Json), ct);
-        foreach (var item in new[]
+    private static void AddPluginSettings(JsonObject settings, Quartz quartz, string plugin)
+    {
+        (string pluginName, int order) = Metadata(plugin);
+        JsonArray plugins = settings["plugins"]!.AsArray();
+        var pluginSettings = new JsonObject
         {
-            "content",
-            "public",
-            ".quartz"
-        }
+            ["source"] = new JsonObject
+            {
+                ["repo"] = plugin,
+                ["name"] = pluginName
+            },
+            ["enabled"] = true,
+            ["order"] = order,
+            ["options"] = quartz.Options is { } options
+                ? JsonNode.Parse(options.GetRawText())
+                : new JsonObject()
+        };
+        plugins.Insert(0, pluginSettings);
+    }
 
-        )
+    private static async Task PrepareFixtureAsync(
+        Config config,
+        Quartz quartz,
+        string host,
+        CancellationToken ct)
+    {
+        string[] directories = ["content", "public", ".quartz"];
+        foreach (string item in directories)
         {
             if (Directory.Exists(Path.Combine(host, item)))
             {
@@ -256,17 +362,11 @@ public static class QuartzHost
 
         File.Delete(Path.Combine(host, "quartz.lock.json"));
         Copy(Paths.Within(config.Root, quartz.Content), Path.Combine(host, "content"));
-        var assets = Path.Combine(Composition.ToolRoot, "assets");
+        string assets = Path.Combine(Composition.ToolRoot, "assets");
         File.Copy(Path.Combine(assets, "Geist.ttf"), Path.Combine(host, "quartz", "static", "capture-font.ttf"), true);
-        await File.WriteAllTextAsync(Path.Combine(host, "quartz", "styles", "custom.scss"), "@use \"./variables.scss\" as *;\n@font-face{font-family:\"Capture Geist\";src:url(\"/static/capture-font.ttf\") format(\"truetype\");font-display:block;}\n:root{--headerFont:\"Capture Geist\",sans-serif;--bodyFont:\"Capture Geist\",sans-serif;}\n", ct);
-        await Run("node", ["quartz/bootstrap-cli.mjs", "plugin", "install", "--from-config"], host);
-        await Run("node", ["quartz/bootstrap-cli.mjs", "build"], host);
-        var output = Paths.Within(host, "public");
-        if (!File.Exists(Path.Combine(output, "index.html")))
-        {
-            throw new InvalidOperationException("Quartz build did not produce public/index.html");
-        }
-
-        return output;
+        await File.WriteAllTextAsync(
+            Path.Combine(host, "quartz", "styles", "custom.scss"),
+            "@use \"./variables.scss\" as *;\n@font-face{font-family:\"Capture Geist\";src:url(\"/static/capture-font.ttf\") format(\"truetype\");font-display:block;}\n:root{--headerFont:\"Capture Geist\",sans-serif;--bodyFont:\"Capture Geist\",sans-serif;}\n",
+            ct);
     }
 }
