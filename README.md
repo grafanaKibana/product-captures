@@ -78,12 +78,14 @@ The shared workflow uses its own revision's capture Action and checks out the ca
 
 ```html
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/product-captures/hero-dark.png">
-  <img src="docs/assets/product-captures/hero.png" alt="Product overview">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/OWNER/REPO/HEAD/docs/assets/product-captures/hero-dark.png">
+  <img src="https://raw.githubusercontent.com/OWNER/REPO/HEAD/docs/assets/product-captures/hero.png" alt="Product overview">
 </picture>
 ```
 
-Adjust both paths if you configure a different output directory. GitHub selects the matching image for the reader's theme.
+Replace `OWNER/REPO` with your GitHub repository and adjust both image paths if you configure a different output directory. `HEAD` follows the repository's default branch. Keep `srcset` and `src` URLs absolute: external README renderers can rewrite `img.src` while leaving `source.srcset` unchanged. The picture still selects the matching image for the reader's theme.
+
+Badges should include an opaque background so either variant remains readable when a host's theme differs from the system theme. For Shieldcn outline badges, matching `gradient` stops provide a solid fill while preserving the outline and status colors. Badge spacing follows the host Markdown renderer.
 
 ## Configuration
 
