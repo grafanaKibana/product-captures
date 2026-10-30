@@ -8,13 +8,13 @@ inputs:
     description: Validate the plan without product commands, browser capture, or publication.
     default: 'true'
   reuse-screenshots:
-    description: Explicitly reuse the saved light and dark raw screenshots.
+    description: Explicitly reuse the saved screenshots and configured animation pair.
     default: 'false'
   url:
     description: Optional HTTP preview origin override.
     default: ''
   release-tag:
-    description: Existing release tag that receives the finished image pair.
+    description: Existing release tag that receives the finished images and configured animations.
     default: ''
   update-pr:
     description: Open a review-only image update pull request.
@@ -57,6 +57,20 @@ runs:
       if: steps.plan.outputs.dry-run == 'false'
       shell: bash
       run: dotnet "$GITHUB_ACTION_PATH/../../bin/Release/net10.0/ProductCaptures.dll" install --with-deps
+    - name: Install the animation encoder
+      if: steps.plan.outputs.dry-run == 'false' && steps.plan.outputs.needs-ffmpeg == 'true'
+      shell: bash
+      run: |
+        if command -v ffmpeg >/dev/null 2>&1; then
+          exit 0
+        fi
+        if [[ "$RUNNER_OS" == Linux ]]; then
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+        else
+          echo 'Install FFmpeg on this runner before recording animations.' >&2
+          exit 1
+        fi
     - name: Install the Obsidian display
       if: steps.plan.outputs.dry-run == 'false' && steps.plan.outputs.needs-obsidian == 'true' && runner.os == 'Linux'
       shell: bash

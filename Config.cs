@@ -12,6 +12,10 @@ public sealed class Config
     public string Output { get; set; } = "docs/assets/product-captures";
     public Appearance Appearance { get; set; } = new();
     public Capture? Capture { get; set; } = new();
+    public Animation? Animation
+    {
+        get; set;
+    }
     public JsonElement? Build
     {
         get; set;
@@ -69,7 +73,7 @@ public sealed class Config
         {
             if (property.Name is not (
                 "name" or "subtitle" or "output" or "appearance"
-                or "capture" or "build" or "server" or "quartz"))
+                or "capture" or "build" or "server" or "quartz" or "animation"))
             {
                 throw new ArgumentException($"Unknown config property: {property.Name}");
             }
@@ -181,6 +185,7 @@ public sealed class Config
 
         ValidateAppearance();
         ValidateCapture();
+        ValidateAnimation();
         if (Quartz is not null)
         {
             QuartzHost.Validate(this);
@@ -303,6 +308,48 @@ public sealed class Config
         ValidateActions(capture);
         Paths.Within(Root, capture.Vault);
         Paths.Within(Root, capture.PluginDir, true);
+    }
+
+    private void ValidateAnimation()
+    {
+        if (Animation is not { } animation)
+        {
+            return;
+        }
+
+        if (Capture?.Type is not ("web" or "obsidian"))
+        {
+            throw new ArgumentException("animation requires a live web or Obsidian capture");
+        }
+
+        if (animation.Steps is not { Count: >= 1 and <= 12 })
+        {
+            throw new ArgumentException("animation.steps requires between 1 and 12 steps");
+        }
+
+        foreach (AnimationStep step in animation.Steps)
+        {
+            if (step is null
+                || string.IsNullOrWhiteSpace(step.Text)
+                || step.Text.Length > 140
+                || step.Type is not ("click" or "drag" or "scroll" or "focus")
+                || ((step.Type is "click" or "drag") && string.IsNullOrWhiteSpace(step.Selector))
+                || (step.Ready is not null && string.IsNullOrWhiteSpace(step.Ready))
+                || !double.IsFinite(step.X)
+                || !double.IsFinite(step.Y)
+                || !double.IsFinite(step.Zoom)
+                || step.Zoom is < 1 or > 2.5
+                || step.DurationMs is < 400 or > 15000
+                || (step.Type == "drag" && step.X == 0 && step.Y == 0))
+            {
+                throw new ArgumentException("Invalid animation step");
+            }
+        }
+
+        if (animation.Steps.Sum(step => step.DurationMs) > 90000)
+        {
+            throw new ArgumentException("animation steps must total at most 90000 milliseconds");
+        }
     }
 
     private static bool IsCaptureUrl(string? url)
@@ -510,6 +557,32 @@ public sealed class Viewport
 {
     public int Width { get; set; } = 1440;
     public int Height { get; set; } = 900;
+}
+
+public sealed class Animation
+{
+    public List<AnimationStep> Steps { get; set; } = [];
+}
+
+public sealed class AnimationStep
+{
+    public string Text { get; set; } = "";
+    public string Type { get; set; } = "click";
+    public string Selector { get; set; } = "";
+    public string? Ready
+    {
+        get; set;
+    }
+    public double X
+    {
+        get; set;
+    }
+    public double Y
+    {
+        get; set;
+    }
+    public double Zoom { get; set; } = 1.35;
+    public int DurationMs { get; set; } = 2400;
 }
 
 public sealed class CaptureAction

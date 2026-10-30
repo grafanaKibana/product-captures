@@ -26,6 +26,10 @@ jobs:
           dotnet format tests/ProductCaptures.Tests/ProductCaptures.Tests.csproj --verify-no-changes --no-restore
       - name: Install capture browser
         run: dotnet bin/Debug/net10.0/ProductCaptures.dll install --with-deps
+      - name: Install animation encoder
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
       - name: Run .NET tests
         run: dotnet test --solution ProductCaptures.slnx --no-build
       - name: Run Node integration and adapter tests

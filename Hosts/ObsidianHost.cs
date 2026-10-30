@@ -19,7 +19,8 @@ public static class ObsidianHost
         IPlaywright playwright,
         string theme,
         string destination,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<IPage, Task>? record = null)
     {
         Capture capture = config.Capture!;
         string source = Paths.Within(config.Root, capture.Vault);
@@ -104,6 +105,11 @@ public static class ObsidianHost
             IPage page = await WaitForPageAsync(context, timeout.Token);
 
             await PreparePageAsync(page, capture, id, theme);
+            if (record is not null)
+            {
+                await page.EvaluateAsync("() => require('@electron/remote').getCurrentWindow().setIgnoreMouseEvents(true)");
+            }
+
             await ApplyActionsAsync(page, capture.Actions);
 
             await WaitForCaptureAsync(page, capture);
@@ -117,6 +123,10 @@ public static class ObsidianHost
                 Caret = ScreenshotCaret.Hide,
                 Scale = ScreenshotScale.Css
             });
+            if (record is not null)
+            {
+                await record(page);
+            }
         }
         finally
         {

@@ -2,10 +2,12 @@
 
 Capture a product in light and dark themes and compose two matching README images. C# owns capture, composition, host preparation, and publication; Microsoft Playwright supplies Chromium. An optional Node adapter handles the upstream Obsidian launcher.
 
-Each run creates four PNGs in the configured output directory:
+By default, each run creates four PNGs in the configured output directory:
 
 - `captures/overview-light.png` and `captures/overview-dark.png`: raw screenshots.
 - `hero.png` and `hero-dark.png`: finished images.
+
+An optional `animation` adds `showcase.gif` and `showcase-dark.gif` using real product interactions. Both GIFs use a centered app window, smooth camera moves, click indicators, and a theme-matched step pill beneath the screen.
 
 A source-free configuration (`"capture": null`) creates only the finished pair. `manifest.json` records the source commit, configuration hash, and owned filenames. A failed fresh capture never falls back to existing images. Files are replaced only after both themes finish successfully.
 
@@ -22,9 +24,11 @@ dotnet run -- --config /path/to/product/product-captures.json
 
 The first .NET command restores NuGet dependencies and builds the tool. Dry-run validates the configuration and prints the file plan; it starts no product command, server, or browser and writes nothing to the consumer repository. SDK restore and build can still write the tool's own build cache. Building from the tool checkout also keeps a product's `global.json` SDK pin from affecting the capture tool.
 
-Use `--reuse-screenshots` to explicitly compose from the saved raw pair. Use `--url https://preview.example` to capture a running preview; this skips local product build and host preparation. Both themes always run. Paths resolve from the configuration file and must remain inside its repository directory; managed paths cannot contain symlinks.
+Use `--reuse-screenshots` to explicitly compose from the saved raw pair. When animation is configured, this also copies the existing GIF pair without replaying its steps. Use `--url https://preview.example` to capture a running preview; this skips local product build and host preparation. Both themes always run. Paths resolve from the configuration file and must remain inside its repository directory; managed paths cannot contain symlinks.
 
-Node 22 is needed for Obsidian, Quartz, or your own Node build commands. Obsidian on Linux also needs a display; the Action supplies Xvfb and Openbox. Local desktop runs use the available display.
+Node 22 is needed for Obsidian, Quartz, or your own Node build commands. Obsidian on Linux also needs a display; the Action supplies Xvfb and Openbox. Local desktop runs use the available display. During animation, the isolated Obsidian window ignores physical mouse input so it cannot interrupt an automated drag.
+
+Fresh animation runs also need FFmpeg on `PATH`. Install it with `brew install ffmpeg` on macOS or `sudo apt-get install ffmpeg` on Ubuntu. The shared Action installs it on Linux only when a fresh animation is requested. Still captures, dry-runs, and explicit reuse do not need the encoder.
 
 ## Add to a repository
 
@@ -101,6 +105,7 @@ Unknown keys, duplicate JSON keys, and malformed values fail validation. Every s
 | `build` | command string or command object; absent | Product build before fresh capture. |
 | `server` | object; absent | Static directory or command server for a local web capture. |
 | `quartz` | object; absent | Prepare a pinned Quartz host and install the consumer plugin. |
+| `animation` | object; absent or `null` | Record the configured steps into a light/dark GIF pair. |
 
 ### Appearance
 
@@ -161,6 +166,35 @@ Action objects support `type` (default `click`), `selector` (required for click/
 }
 ```
 
+### Animation
+
+With v2.1.0 or later, add `animation` to a web or Obsidian configuration to record a short walkthrough. Steps act on the real product page; image and source-free captures cannot record animations. The recording uses the configured background, a centered window without product headings, and 20 frames per second.
+
+```json
+{
+  "animation": {
+    "steps": [
+      { "text": "Open saved places", "selector": ".tabsdown__tab:has-text('Saved places')" },
+      { "text": "Return to the overview", "type": "focus", "zoom": 1 }
+    ]
+  }
+}
+```
+
+`animation.steps` is required and contains 1–12 steps. The combined step duration must not exceed 90 seconds. Each step accepts:
+
+| Key | Type and default | Meaning |
+| --- | --- | --- |
+| `text` | required string, 1–140 characters | Step label beneath the window; labels that do not fit are rejected with a shortening instruction. |
+| `type` | `click`, `drag`, `scroll`, or `focus`; `click` | Product interaction; focus moves the camera without changing the product. |
+| `selector` | string; empty | Target selector; required for click and drag. Empty focus selects the whole viewport; empty scroll targets the page. |
+| `x`, `y` | finite numbers; `0` | Drag offsets or scroll positions in product pixels; a drag requires a nonzero offset. |
+| `zoom` | number; `1.35` | Camera scale from `1` to `2.5`; `1` shows the overview. |
+| `durationMs` | integer; `2400` | Total step duration, including camera and pointer movement; `400`–`15000` milliseconds. |
+| `ready` | string; absent | Selector to wait for after a click, drag, or scroll, before recording the result. |
+
+The existing manual workflow records both themes without additional inputs. In a README, use the dark GIF as a picture source and the light GIF as its fallback. A `prefers-reduced-motion: reduce` source can select the matching static hero instead.
+
 ### Build, server, and Quartz
 
 `build` accepts a shell command string or `{ "command": "npm run build", "cwd": ".", "timeoutMs": 600000 }`. Its `command` is required; `cwd` defaults to the configuration directory and `timeoutMs` to 600000 milliseconds. Commands run through the platform shell.
@@ -189,12 +223,12 @@ Both `actions/capture` and `.github/workflows/capture.yml` accept exactly:
 | --- | --- | --- |
 | `config` | `product-captures.json` | Consumer configuration path. |
 | `dry-run` | `true` | Validate and print the plan. |
-| `reuse-screenshots` | `false` | Recompose the saved raw pair. |
+| `reuse-screenshots` | `false` | Recompose the saved raw pair and copy any configured GIF pair. |
 | `url` | empty | Preview origin override. |
-| `release-tag` | empty | Upload the finished pair to this existing release; capture checks out that tag. |
-| `update-pr` | `false` | Open a review-only PR containing only owned PNGs. |
+| `release-tag` | empty | Upload finished images and configured animations to this existing release; capture checks out that tag. |
+| `update-pr` | `false` | Open a review-only PR containing only owned PNGs and GIFs. |
 
-The validation workflow accepts only `config`. The Action passes the caller's GitHub token only to publication commands. Release uploads attach the finished pair; image PRs contain all four owned PNGs, or two for source-free configurations. Publication never approves or merges a PR.
+The validation workflow accepts only `config`. The Action passes the caller's GitHub token only to publication commands. Release uploads attach the finished pair and any configured GIFs; image PRs contain all four owned PNGs plus the configured GIF pair, or two PNGs for source-free configurations. Publication never approves or merges a PR.
 
 ## Development and releases
 
@@ -214,10 +248,10 @@ dotnet test --solution ProductCaptures.slnx --no-build
 node --test tests/node/*.test.mjs
 ```
 
-Use Node 22 and the .NET 10 SDK. The test project uses xUnit v3 (4.0.2), FluentAssertions 8.11.0 and Microsoft.Testing.Platform. Browser tests use isolated contexts; filesystem and process tests own their temporary resources and clean them up on failure. The production project still pins Microsoft.Playwright 1.62.0, and the small host adapter pins `obsidian-launcher` 3.4.0.
+Use Node 22, the .NET 10 SDK, and FFmpeg for animation tests. The test project uses xUnit v3 (4.0.2), FluentAssertions 8.11.0 and Microsoft.Testing.Platform. Browser tests use isolated contexts; filesystem and process tests own their temporary resources and clean them up on failure. The production project still pins Microsoft.Playwright 1.62.0, and the small host adapter pins `obsidian-launcher` 3.4.0.
 
 Before publication, verify formatting with `dotnet format <project> --verify-no-changes --no-restore` for `ProductCaptures.csproj` and `tests/ProductCaptures.Tests/ProductCaptures.Tests.csproj`, then run both test suites and the generic browser capture in CI. The SDK analyzers and `.editorconfig` enforce the configured style. CI also checks the same-revision reusable workflows.
 
-Version 2 is a breaking configuration and Action-interface change; 2.0.1 is a compatible readability patch. After the candidate's current-SHA hosted checks pass, create its immutable version tag and publish with an explicit matching title, for example `gh release create v2.0.1 --title v2.0.1 --notes-file release-notes.md`. Release titles contain only the version tag. Advance the compatible floating `v2` ref only after those checks pass. Preserve existing immutable version tags for rollback.
+Version 2 is a breaking configuration and Action-interface change; 2.0.1 is a compatible readability patch. After the candidate's current-SHA hosted checks pass, create its immutable version tag and publish with an explicit matching title, for example `gh release create v2.1.0 --title v2.1.0 --notes-file release-notes.md`. Release titles contain only the version tag. Advance the compatible floating `v2` ref only after those checks pass. Preserve existing immutable version tags for rollback.
 
 Authored toolkit code uses MIT. Fonts, official branding, dependencies, and image provenance retain their own terms; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -223,7 +223,8 @@ public static class Program
         string planOutput = $"artifact-path={artifactPath}\n"
             + $"needs-obsidian={needsObsidian.ToString().ToLowerInvariant()}\n"
             + $"needs-node={needsNode.ToString().ToLowerInvariant()}\n"
-            + $"dry-run={action.Options.DryRun.ToString().ToLowerInvariant()}\n";
+            + $"dry-run={action.Options.DryRun.ToString().ToLowerInvariant()}\n"
+            + $"needs-ffmpeg={(config.Animation is not null && !action.Options.ReuseScreenshots).ToString().ToLowerInvariant()}\n";
         await File.AppendAllTextAsync(output, planOutput);
     }
 }

@@ -63,7 +63,7 @@ test('Action plan emits the expected outputs while remaining dry', t => {
   const result = action(root, 'plan', { GITHUB_OUTPUT: output });
 
   assert.equal(result.status, 0, result.stderr);
-  assert.match(readFileSync(output, 'utf8'), /needs-obsidian=false\nneeds-node=false\ndry-run=true/);
+  assert.match(readFileSync(output, 'utf8'), /needs-obsidian=false\nneeds-node=false\ndry-run=true\nneeds-ffmpeg=false/);
   assert(!existsSync(path.join(root, 'docs')));
 });
 
@@ -104,12 +104,34 @@ for (const entry of plans) {
     assert.equal(result.status, 0, result.stderr);
     assert.equal(readFileSync(output, 'utf8'), 'existing=value\n'
       + 'artifact-path=docs/assets/product-captures\n'
-      + `needs-obsidian=${entry.obsidian}\nneeds-node=${entry.node}\ndry-run=${entry.dryRun ?? true}\n`);
+      + `needs-obsidian=${entry.obsidian}\nneeds-node=${entry.node}\ndry-run=${entry.dryRun ?? true}\n`
+      + 'needs-ffmpeg=false\n');
     assert.equal(JSON.parse(result.stdout).dryRun, true);
     assert(!existsSync(path.join(root, 'should-not-build')));
     assert(!existsSync(path.join(root, 'docs/assets/product-captures/hero.png')));
   });
 }
+
+test('an animation plan requests the encoder without starting capture or writing media', t => {
+  const root = fixture(t, {
+    name: 'Animated product',
+    capture: { type: 'web', ready: '#ready' },
+    animation: { steps: [{ text: 'Open details', selector: '#details' }] },
+    build: 'touch should-not-build',
+  });
+  const before = readdirSync(root);
+  const output = path.join(root, 'action-output');
+
+  const result = action(root, 'plan', { GITHUB_OUTPUT: output });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).files, [
+    'captures/overview-light.png', 'captures/overview-dark.png',
+    'hero.png', 'hero-dark.png', 'showcase.gif', 'showcase-dark.gif',
+  ]);
+  assert.match(readFileSync(output, 'utf8'), /dry-run=true\nneeds-ffmpeg=true\n$/);
+  assert.deepEqual(readdirSync(root).filter(file => file !== 'action-output'), before);
+});
 
 for (const [dryRun, reuse, expected] of [
   ['invalid', 'invalid', 'DRY_RUN'],

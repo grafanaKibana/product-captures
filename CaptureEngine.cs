@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Playwright;
 
@@ -13,14 +14,20 @@ public static class CaptureEngine
 {
     public static readonly string[] Themes = ["light", "dark"];
 
-    public static string[] OwnedFiles(Config config) => config.Capture is null
-        ? ["hero.png", "hero-dark.png"]
-        : [
-            "captures/overview-light.png",
-            "captures/overview-dark.png",
-            "hero.png",
-            "hero-dark.png"
-        ];
+    public static string[] OwnedFiles(Config config)
+    {
+        string[] images = config.Capture is null
+            ? ["hero.png", "hero-dark.png"]
+            : [
+                "captures/overview-light.png",
+                "captures/overview-dark.png",
+                "hero.png",
+                "hero-dark.png"
+            ];
+        return config.Animation is null
+            ? images
+            : [.. images, "showcase.gif", "showcase-dark.gif"];
+    }
 
     private static string[] ObsoleteFiles(Config config) => config.Capture is null
         ? ["captures/overview-light.png", "captures/overview-dark.png"]
@@ -59,6 +66,14 @@ public static class CaptureEngine
                     Path.Combine(config.OutputDirectory, $"captures/overview-{theme}.png"));
                 _ = ReadImage(savedImage);
             }
+
+            if (config.Animation is not null)
+            {
+                foreach (string theme in Themes)
+                {
+                    ValidateMedia(Path.Combine(config.OutputDirectory, AnimationFile(theme)));
+                }
+            }
         }
 
         if (!options.ReuseScreenshots && config.Capture?.Type == "image")
@@ -85,6 +100,11 @@ public static class CaptureEngine
         {
             PrintPlan(config, options);
             return;
+        }
+
+        if (config.Animation is not null && !options.ReuseScreenshots)
+        {
+            await AnimationRenderer.VerifyEncoderAsync(cancellationToken);
         }
 
         string stage = Path.Combine(Path.GetTempPath(), "product-captures-" + Guid.NewGuid().ToString("N"));
@@ -124,9 +144,15 @@ public static class CaptureEngine
                 await RenderHeroAsync(browser, config, theme, source, stage);
             }
 
+            foreach (string file in OwnedFiles(config))
+            {
+                ValidateMedia(Path.Combine(stage, file));
+            }
+
             await WriteManifestAsync(config, options, stage, cancellationToken);
             InstallOutputs(config, stage);
-            Console.WriteLine($"Generated {OwnedFiles(config).Length} PNGs in {config.OutputDirectory}");
+            string kind = config.Animation is null ? "PNGs" : "images and animations";
+            Console.WriteLine($"Generated {OwnedFiles(config).Length} {kind} in {config.OutputDirectory}");
         }
         finally
         {
@@ -193,9 +219,20 @@ public static class CaptureEngine
         string relative = $"captures/overview-{theme}.png";
         string destination = Path.Combine(stage, relative);
         Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        string animationDestination = Path.Combine(stage, AnimationFile(theme));
+        Func<IPage, Task>? record = config.Animation is null
+            ? null
+            : page => AnimationRenderer.CaptureAsync(
+                browser, page, config, theme, animationDestination, cancellationToken);
         if (options.ReuseScreenshots)
         {
             File.Copy(Paths.Within(config.Root, Path.Combine(config.OutputDirectory, relative)), destination);
+            if (config.Animation is not null)
+            {
+                File.Copy(
+                    Paths.Within(config.Root, Path.Combine(config.OutputDirectory, AnimationFile(theme))),
+                    animationDestination);
+            }
         }
         else if (capture.Type == "image")
         {
@@ -203,11 +240,13 @@ public static class CaptureEngine
         }
         else if (capture.Type == "obsidian")
         {
-            await ObsidianHost.CaptureAsync(config, playwright, theme, destination, cancellationToken);
+            await ObsidianHost.CaptureAsync(
+                config, playwright, theme, destination, cancellationToken, record);
         }
         else
         {
-            await CaptureWebAsync(browser, config, theme, baseUrl, destination, options.Url is not null);
+            await CaptureWebAsync(
+                browser, config, theme, baseUrl, destination, options.Url is not null, record);
         }
 
         return ReadImage(destination);
@@ -357,6 +396,30 @@ public static class CaptureEngine
         return new SourceImage(width, height, "data:image/png;base64," + Convert.ToBase64String(bytes));
     }
 
+    private static string AnimationFile(string theme) =>
+        theme == "dark" ? "showcase-dark.gif" : "showcase.gif";
+
+    public static void ValidateMedia(string path)
+    {
+        if (!path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+        {
+            _ = ReadImage(path);
+            return;
+        }
+
+        byte[] bytes = File.ReadAllBytes(path);
+        string signature = bytes.Length >= 13
+            ? Encoding.ASCII.GetString(bytes, 0, 6)
+            : "";
+        if (signature is not ("GIF87a" or "GIF89a")
+            || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(6, 2)) is < 1 or > 8192
+            || BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(8, 2)) is < 1 or > 8192
+            || bytes[^1] != 0x3b)
+        {
+            throw new ArgumentException($"Expected complete GIF: {path}");
+        }
+    }
+
     public static Task SettleAsync(IPage page) => page.EvaluateAsync("""
         async () => {
           await document.fonts.ready;
@@ -374,7 +437,8 @@ public static class CaptureEngine
         string theme,
         string? baseUrl,
         string destination,
-        bool overrideUrl)
+        bool overrideUrl,
+        Func<IPage, Task>? record)
     {
         Capture capture = config.Capture!;
         IPage page = await browser.NewPageAsync(new BrowserNewPageOptions
@@ -462,6 +526,10 @@ public static class CaptureEngine
                 Animations = ScreenshotAnimations.Disabled,
                 Caret = ScreenshotCaret.Hide
             });
+            if (record is not null)
+            {
+                await record(page);
+            }
         }
         finally
         {

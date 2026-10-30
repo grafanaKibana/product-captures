@@ -53,7 +53,7 @@ public static class Publisher
             string path = Paths.Within(
                 config.Root,
                 Path.Combine(config.OutputDirectory, file));
-            _ = CaptureEngine.ReadImage(path);
+            CaptureEngine.ValidateMedia(path);
             images.Add(path);
         }
 
@@ -316,7 +316,7 @@ public static class Publisher
             head = branch,
             @base = baseBranch,
             body = $"Regenerated the configured light and dark images from {version}.\n\n"
-                + "Only the owned PNGs are included. Review before merging; "
+                + "Only the configured PNGs and GIFs are included. Review before merging; "
                 + "this workflow never merges the PR."
         });
     }
