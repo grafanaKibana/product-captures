@@ -28,15 +28,13 @@ Node 22 is needed for Obsidian, Quartz, or your own Node build commands. Obsidia
 
 ## Add to a repository
 
-Copy [example.product-captures.json](example.product-captures.json) to `product-captures.json`, then add these two workflows.
+Copy [example.product-captures.json](example.product-captures.json) to `product-captures.json`, then add this manual workflow.
 
 `.github/workflows/product-captures.yml`:
 
 ```yaml
 name: Product captures
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       dry_run:
@@ -58,45 +56,23 @@ jobs:
   capture:
     uses: grafanaKibana/product-captures/.github/workflows/capture.yml@v2
     with:
-      dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
-      reuse-screenshots: ${{ inputs.reuse_screenshots || false }}
-      url: ${{ inputs.url || '' }}
-      release-tag: ${{ github.event.release.tag_name || '' }}
-      update-pr: ${{ github.event_name == 'release' || inputs.update_pr || false }}
+      dry-run: ${{ inputs.dry_run }}
+      reuse-screenshots: ${{ inputs.reuse_screenshots }}
+      url: ${{ inputs.url }}
+      update-pr: ${{ inputs.update_pr }}
 ```
 
-Release publication captures the tagged source, attaches the finished pair, and opens an image update PR. A manual run defaults to planning; turn off dry-run to capture and open the review PR.
+Open **Actions → Product captures → Run workflow**. Leave `dry_run` enabled to validate the configuration and preview the plan. Turn it off to capture both themes; `update_pr` controls whether the finished images open a review-only PR. Captures run only when this workflow is dispatched manually.
 
-If another job creates the release using `GITHUB_TOKEN`, GitHub does not trigger a second release workflow from that event. Add the composite Action immediately after that job's release step instead, using the tag produced by your release job:
+GitHub enables manual dispatch after the workflow exists on the repository's default branch. To preview from the command line:
 
-```yaml
-- name: Capture published release
-  uses: grafanaKibana/product-captures/actions/capture@v2
-  with:
-    dry-run: false
-    release-tag: ${{ steps.release.outputs.tag_name }}
-    update-pr: true
+```sh
+gh workflow run product-captures.yml --repo owner/repo -f dry_run=true
 ```
 
-The surrounding job must check out that tag with `persist-credentials: false` and grant `contents: write` and `pull-requests: write`. Choose this direct integration or the release-event workflow for a given release so it is captured once.
+The write permissions support opening an image PR. For artifact-only runs, disable `update_pr` and use `contents: read`.
 
-Write permissions are needed only when uploading to a release or opening an image PR. An artifact-only caller can use `contents: read`.
-
-`.github/workflows/product-captures-check.yml`:
-
-```yaml
-name: Validate product captures
-on:
-  pull_request:
-    paths: [product-captures.json, .github/workflows/product-captures*.yml]
-permissions:
-  contents: read
-jobs:
-  validate:
-    uses: grafanaKibana/product-captures/.github/workflows/validate.yml@v2
-```
-
-The shared workflows use their own revision's capture Action and check out the caller's source without persisted credentials. Validation always uses dry-run. Add `.product-captures-cache/` to the consumer's `.gitignore` when using Obsidian or Quartz.
+The shared workflow uses its own revision's capture Action and checks out the caller's source without persisted credentials. Dry-run performs configuration validation within the manual workflow. Add `.product-captures-cache/` to the consumer's `.gitignore` when using Obsidian or Quartz.
 
 ## Use the images in a README
 
